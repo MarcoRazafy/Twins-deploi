@@ -22,7 +22,7 @@ function load(): void {
   if (loaded) return;
   loaded = true;
   for (const file of ENV_FILES) {
-    if (!existsSync(file)) continue;
+    if (!existsSync(/* turbopackIgnore: true */ file)) continue;
     try {
       // process.loadEnvFile keeps the variables that already exist.
       process.loadEnvFile(file);

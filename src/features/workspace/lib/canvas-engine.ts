@@ -29,6 +29,7 @@ export interface NodeMotion {
 
 /** Room kept around the cards for the overlays (chip, buttons, control stack). */
 const PADDING = { top: 72, right: 40, bottom: 40, left: 80 } as const;
+const COMPACT_PADDING = { top: 64, right: 16, bottom: 16, left: 56 } as const;
 /** Below this free width the panel is considered full screen (mobile). */
 const MIN_FREE_WIDTH = 160;
 
@@ -123,6 +124,17 @@ export class CanvasEngine {
     const appeared = !this.hadServices && services.length > 0;
     this.hadServices = services.length > 0;
     return appeared;
+  }
+
+  /** Position the server knows about (target of the last sync). */
+  syncedPosition(id: string): Position | undefined {
+    return this.synced.get(id);
+  }
+
+  /** Position currently displayed (follows drags and animations). */
+  currentPosition(id: string): Position | undefined {
+    const node = this.nodes.get(id);
+    return node ? { x: node.x.get(), y: node.y.get() } : undefined;
   }
 
   moveNode(id: string, position: Position, animated: boolean): void {
@@ -247,8 +259,10 @@ export class CanvasEngine {
 
     const free = this.freeArea();
     const { x, y, zoom } = this.viewport();
-    const left = x + node.x.get() * zoom;
-    const top = y + node.y.get() * zoom;
+    // Aim at where the card is going (server position), not where an animation currently is.
+    const target = this.synced.get(id) ?? { x: node.x.get(), y: node.y.get() };
+    const left = x + target.x * zoom;
+    const top = y + target.y * zoom;
     const right = left + CANVAS.cardWidth * zoom;
     const bottom = top + height * zoom;
 
@@ -268,13 +282,14 @@ export class CanvasEngine {
 
   private freeArea(): { left: number; right: number; top: number; bottom: number } {
     const panel = this.panelWidth > 0 && !this.coversEverything() ? this.panelWidth : 0;
-    const left = PADDING.left;
-    const top = PADDING.top;
+    const padding = this.size.width < 640 ? COMPACT_PADDING : PADDING;
+    const left = padding.left;
+    const top = padding.top;
     return {
       left,
       top,
-      right: Math.max(left + 1, this.size.width - panel - PADDING.right),
-      bottom: Math.max(top + 1, this.size.height - PADDING.bottom),
+      right: Math.max(left + 1, this.size.width - panel - padding.right),
+      bottom: Math.max(top + 1, this.size.height - padding.bottom),
     };
   }
 
@@ -313,8 +328,8 @@ export class CanvasEngine {
   }
 }
 
-/** Width of the service panel for a given surface width (px). */
-export function panelWidthFor(surfaceWidth: number): number {
-  if (surfaceWidth < 768) return surfaceWidth;
+/** Width of the service panel (px): full width on small viewports, ~62 % otherwise. */
+export function panelWidthFor(surfaceWidth: number, fullWidth: boolean): number {
+  if (fullWidth) return surfaceWidth;
   return Math.min(surfaceWidth - 120, clamp(surfaceWidth * 0.62, 560, 980));
 }

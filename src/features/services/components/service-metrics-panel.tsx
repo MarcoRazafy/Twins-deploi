@@ -33,7 +33,17 @@ interface StatRow {
   format: (value: number) => string;
 }
 
-function StatFigures({ row, loading }: { row: StatRow; loading: boolean }) {
+function StatFigures({
+  row,
+  loading,
+  compact,
+  showHeads,
+}: {
+  row: StatRow;
+  loading: boolean;
+  compact: boolean;
+  showHeads: boolean;
+}) {
   const cells: Array<[string, number | undefined]> = [
     ["Actuel", row.stats?.current],
     ["Moyenne", row.stats?.average],
@@ -41,9 +51,9 @@ function StatFigures({ row, loading }: { row: StatRow; loading: boolean }) {
   ];
 
   return (
-    <div className="flex items-end gap-4 @sm:gap-6">
+    <div className={cn("flex items-end", compact ? "gap-3" : "gap-4 @sm:gap-6")}>
       {row.label ? (
-        <span className="flex w-16 shrink-0 items-center gap-1.5 pb-0.5 text-xs text-muted-foreground">
+        <span className="flex w-14 shrink-0 items-center gap-1.5 pb-0.5 text-xs text-muted-foreground">
           <span
             aria-hidden="true"
             className="size-2 shrink-0 rounded-full"
@@ -54,14 +64,15 @@ function StatFigures({ row, loading }: { row: StatRow; loading: boolean }) {
       ) : null}
       {cells.map(([label, value]) => (
         <div key={label} className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className={cn("text-xs text-muted-foreground", !showHeads && "sr-only")}>{label}</p>
           {loading ? (
             <Skeleton className="mt-1 h-6 w-14" />
           ) : (
             <p
               className={cn(
-                "tabular truncate font-semibold",
-                label === "Actuel" ? "text-lg" : "text-lg text-muted-foreground",
+                "tabular font-semibold whitespace-nowrap",
+                compact ? "text-sm" : "text-lg",
+                label !== "Actuel" && "text-muted-foreground",
               )}
             >
               {value === undefined ? "—" : row.format(value)}
@@ -94,8 +105,14 @@ function MetricCard({ title, description, rows, loading, aside, children }: Metr
         {aside}
       </div>
       <div className="mt-3 space-y-2">
-        {rows.map((row) => (
-          <StatFigures key={row.label ?? "main"} row={row} loading={loading} />
+        {rows.map((row, index) => (
+          <StatFigures
+            key={row.label ?? "main"}
+            row={row}
+            loading={loading}
+            compact={rows.length > 1}
+            showHeads={index === 0}
+          />
         ))}
       </div>
       <div className="mt-3">{children}</div>

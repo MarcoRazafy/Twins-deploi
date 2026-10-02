@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
-import { PageSkeleton } from "@/components/shared/page-skeleton";
-import { WorkspaceView } from "@/features/workspace";
+import { WorkspaceView, WorkspaceSkeleton } from "@/features/workspace";
 
 export const metadata: Metadata = { title: "Workspace" };
 
@@ -14,7 +13,7 @@ export default async function Page({
   const { projectId } = await params;
 
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<WorkspaceSkeleton />}>
       <WorkspaceView projectId={projectId} />
     </Suspense>
   );

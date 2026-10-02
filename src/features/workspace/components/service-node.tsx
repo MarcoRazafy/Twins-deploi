@@ -31,8 +31,8 @@ export interface ServiceNodeProps {
   lastActivityAt: string;
   snapEnabled: boolean;
   linkRole: LinkRole;
-  /** Entrance: a staggered fade for the first batch, a pop for later arrivals. */
-  entrance: { kind: "stagger"; delay: number } | { kind: "pop" };
+  /** Entrance delay (s) of the first batch; null for a card added later (it pops in). */
+  entranceDelay: number | null;
   onSelect: (id: string) => void;
   onMoveEnd: (id: string, before: Position, after: Position) => void;
   /** Keyboard move, in grid steps. */
@@ -63,7 +63,7 @@ export const ServiceNode = memo(function ServiceNode({
   lastActivityAt,
   snapEnabled,
   linkRole,
-  entrance,
+  entranceDelay,
   onSelect,
   onMoveEnd,
   onNudge,
@@ -213,14 +213,14 @@ export const ServiceNode = memo(function ServiceNode({
         onPointerCancel={(event) => finishPointer(event, true)}
         onKeyDown={handleKeyDown}
         initial={
-          entrance.kind === "pop" ? { opacity: 0, scale: 0.8 } : { opacity: 0, scale: 0.94 }
+          entranceDelay === null ? { opacity: 0, scale: 0.8 } : { opacity: 0, scale: 0.94 }
         }
         animate={{ opacity: 1, scale: dragging ? 1.02 : 1 }}
         exit={{ opacity: 0, scale: 0.9, transition: { duration: DURATION.fast, ease: EASE.out } }}
         transition={
-          settled || entrance.kind === "pop"
+          settled || entranceDelay === null
             ? SPRING.smooth
-            : { duration: DURATION.base, ease: EASE.out, delay: entrance.delay }
+            : { duration: DURATION.base, ease: EASE.out, delay: entranceDelay }
         }
         onAnimationComplete={() => setSettled(true)}
         className={cn(
