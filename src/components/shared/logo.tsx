@@ -12,7 +12,7 @@ export function LogoMark({ className }: { className?: string }) {
       alt=""
       aria-hidden="true"
       priority
-      className={cn("size-7 shrink-0 object-contain", className)}
+      className={cn("h-7 w-auto shrink-0 object-contain", className)}
     />
   );
 }
