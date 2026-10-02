@@ -73,6 +73,17 @@ export const env = {
   get hostsHelper(): string | null {
     return optional("MINI_RAILWAY_HOSTS_HELPER");
   },
+  /** Optional: the assistant answers “not configured” without it. Never log or return it. */
+  get mistralApiKey(): string | null {
+    return optional("MISTRAL_API_KEY");
+  },
+  /**
+   * `open-mistral-nemo` by default: on the key installed here `mistral-small-latest`
+   * is refused (request quota of 0 per minute). Override with MISTRAL_MODEL.
+   */
+  get mistralModel(): string {
+    return optional("MISTRAL_MODEL") ?? "open-mistral-nemo";
+  },
   get isProduction(): boolean {
     load();
     return process.env.NODE_ENV === "production";

@@ -1,6 +1,6 @@
 import type { MemberRole, MetricRange, ProjectColor, Region } from "@/lib/types";
 
-export const APP_NAME = "Mini Railway";
+export const APP_NAME = "TwinsDeploi";
 export const APP_DESCRIPTION =
   "Hébergez et pilotez vos applications, bases PostgreSQL, conteneurs Docker et domaines depuis un seul espace de travail.";
 

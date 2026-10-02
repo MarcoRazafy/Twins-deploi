@@ -1,5 +1,5 @@
 /**
- * Worker of Mini Railway (`npm run worker`): executes what the API only
+ * Worker of TwinsDeploi (`npm run worker`): executes what the API only
  * records - queued deployments, jobs - and keeps the database in line with
  * Docker (monitor, metrics, scheduled backups).
  *

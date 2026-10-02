@@ -8,7 +8,9 @@ import { ResetDemoDialog } from "@/components/layout/reset-demo-dialog";
 import { useSidebarPrefs } from "@/components/layout/sidebar-prefs";
 import { Topbar } from "@/components/layout/topbar";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { AssistantWidget } from "@/features/assistant";
 import { SessionGate } from "@/features/auth";
+import { API_MODE } from "@/lib/api";
 
 const SHELL_STYLE = { "--sidebar-width": "15rem" } as CSSProperties;
 
@@ -53,6 +55,8 @@ function PlatformChrome({ children }: { children: ReactNode }) {
 
       <CommandPalette onResetDemo={requestReset} />
       <ResetDemoDialog open={resetOpen} onOpenChange={setResetOpen} />
+      {/* Needs the server session: absent from the in-browser simulator. */}
+      {API_MODE === "http" ? <AssistantWidget /> : null}
     </SidebarProvider>
   );
 }

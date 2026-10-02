@@ -18,7 +18,7 @@ function shown(raw: string): string {
 export function buildNginxSnippet(input: NginxPreviewInput): string {
   const host = input.baseDomain.trim() || "up.exemple.mg";
   const lines = [
-    "# Généré par Mini Railway pour chaque domaine",
+    "# Généré par TwinsDeploi pour chaque domaine",
     "server {",
     "  listen 80;",
     "  listen 443 ssl;",

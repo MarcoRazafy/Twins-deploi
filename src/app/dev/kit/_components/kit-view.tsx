@@ -71,7 +71,7 @@ export function KitView() {
     <PageContainer>
       <PageHeader
         title="Kit UI"
-        description="Les briques partagées de Mini Railway, dans tous leurs états. Chaque écran de l’application est un assemblage de ces composants."
+        description="Les briques partagées de TwinsDeploi, dans tous leurs états. Chaque écran de l’application est un assemblage de ces composants."
         icon={<LogoMark className="size-10" />}
         badge={<Badge variant="outline">components/shared</Badge>}
         actions={

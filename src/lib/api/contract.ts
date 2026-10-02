@@ -1,5 +1,5 @@
 /**
- * API contract of Mini Railway.
+ * API contract of TwinsDeploi.
  *
  * The whole frontend talks to the backend exclusively through the `Api`
  * interface below (via the TanStack Query hooks in `@/lib/queries`).

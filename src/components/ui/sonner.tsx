@@ -3,7 +3,7 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
-// Mini Railway ships a single (dark) theme, so the toaster is pinned to it.
+// TwinsDeploi ships a single (dark) theme, so the toaster is pinned to it.
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner

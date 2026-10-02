@@ -58,7 +58,7 @@ export function GithubOnboarding({ onConnect }: GithubOnboardingProps) {
           Connectez votre compte GitHub
         </h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Reliez vos dépôts à Mini Railway pour les importer et les déployer automatiquement.
+          Reliez vos dépôts à TwinsDeploi pour les importer et les déployer automatiquement.
         </p>
       </div>
 

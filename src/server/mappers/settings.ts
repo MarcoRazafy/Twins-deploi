@@ -6,7 +6,7 @@ import { env } from "../env";
 export function defaultPlatformSettings(): PlatformSettings {
   const baseDomain = env.baseDomain;
   return {
-    workspaceName: "Mini Railway",
+    workspaceName: "TwinsDeploi",
     baseDomain,
     defaultRegion: "mg-analamanga",
     deployments: {

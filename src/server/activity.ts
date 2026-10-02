@@ -13,7 +13,7 @@ import { getPlatformSettings } from "./platform-settings";
 const MAX_EVENTS = 300;
 
 /** Author of events the platform produces on its own (certificates, automatic backups…). */
-export const SYSTEM_ACTOR = "Mini Railway";
+export const SYSTEM_ACTOR = "TwinsDeploi";
 
 export interface ActivityInput {
   type: ActivityType;

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/lib/constants";
 import logoMark from "@/assets/logo-mark.png";
 
-/** Mini Railway mark (the artwork provided by the owner, on a transparent background). */
+/** TwinsDeploi mark (the artwork provided by the owner, on a transparent background). */
 export function LogoMark({ className }: { className?: string }) {
   return (
     <Image

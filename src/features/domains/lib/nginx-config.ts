@@ -35,7 +35,7 @@ export function buildNginxConfig({ domain, serviceName, settings }: NginxConfigI
   ];
 
   const lines = [
-    "# Généré par Mini Railway : ne modifiez pas ce fichier à la main.",
+    "# Généré par TwinsDeploi : ne modifiez pas ce fichier à la main.",
     `# Service ${serviceName} · domaine ${hostname} · port ${targetPort}`,
     `upstream ${upstream} {`,
     `    server ${slugify(serviceName)}.railway.internal:${targetPort};`,

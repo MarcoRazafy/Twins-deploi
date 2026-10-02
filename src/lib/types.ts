@@ -1,5 +1,5 @@
 /**
- * Domain model of Mini Railway.
+ * Domain model of TwinsDeploi.
  *
  * These types are the single source of truth shared by the UI, the query hooks
  * and the API layer. They are deliberately serialisable (no Date objects, no
