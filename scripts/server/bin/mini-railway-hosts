@@ -1,0 +1,181 @@
+#!/usr/bin/python3 -I
+"""Manage Mini Railway's local hostnames in /etc/hosts.
+
+The platform runs unprivileged. It calls this helper through sudo (see
+/etc/sudoers.d/mini-railway) to make local development domains resolve to this
+machine. The helper is the privilege boundary, so it accepts DATA ONLY and
+validates it strictly:
+
+  * only hostnames under the reserved local TLDs .test and .localhost are
+    accepted (RFC 6761) - a caller can never redirect a real domain;
+  * every entry points to 127.0.0.1;
+  * only the lines between the two markers below are ever touched.
+
+Usage:
+  mini-railway-hosts add <hostname>
+  mini-railway-hosts remove <hostname>
+  mini-railway-hosts list
+
+Exit codes: 0 ok, 2 invalid input, 3 /etc/hosts is in an unexpected state.
+"""
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import stat
+import sys
+import tempfile
+
+BEGIN_MARKER = "# >>> mini-railway (managed block - do not edit by hand) >>>"
+END_MARKER = "# <<< mini-railway <<<"
+ADDRESS = "127.0.0.1"
+MAX_ENTRIES = 2000
+MAX_HOSTNAME_LENGTH = 240
+
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+HOSTNAME_RE = re.compile(rf"^(?:{_LABEL}\.)+(?:test|localhost)$")
+
+
+def fail(code, message):
+    print(f"mini-railway-hosts: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def system_root():
+    """Real root, or a sandbox directory when a non-root user runs the tests.
+
+    The override is ignored for uid 0, so it cannot be abused through sudo.
+    """
+    override = os.environ.get("MINI_RAILWAY_TEST_ROOT")
+    if override and os.geteuid() != 0:
+        return override
+    if os.geteuid() != 0:
+        fail(2, "must be run as root (through sudo)")
+    return "/"
+
+
+def validate_hostname(raw):
+    hostname = raw.strip().lower()
+    if len(hostname) > MAX_HOSTNAME_LENGTH or not HOSTNAME_RE.fullmatch(hostname):
+        fail(2, f"refused hostname {raw!r}: only names under .test or .localhost are allowed")
+    return hostname
+
+
+def open_lock(root):
+    """Lock file in a root-only directory.
+
+    /run/lock is world-writable: another account could pre-create, hold or
+    symlink a lock placed there. /run/mini-railway is created 0700 by root.
+    """
+    lock_dir = os.path.join(root, "run/mini-railway")
+    os.makedirs(lock_dir, mode=0o700, exist_ok=True)
+    if os.path.islink(lock_dir):
+        fail(3, f"{lock_dir} is a symbolic link")
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
+    return os.fdopen(os.open(os.path.join(lock_dir, "hosts.lock"), flags, 0o600), "r+")
+
+
+def split_block(lines):
+    """Return (before, managed hostnames, after)."""
+    begins = [i for i, line in enumerate(lines) if line.strip() == BEGIN_MARKER]
+    ends = [i for i, line in enumerate(lines) if line.strip() == END_MARKER]
+    if not begins and not ends:
+        return lines, [], []
+    if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
+        fail(3, "the managed block of /etc/hosts is damaged; fix or remove its markers by hand")
+
+    hostnames = []
+    for line in lines[begins[0] + 1 : ends[0]]:
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == ADDRESS and HOSTNAME_RE.fullmatch(parts[1]):
+            hostnames.append(parts[1])
+    return lines[: begins[0]], hostnames, lines[ends[0] + 1 :]
+
+
+def render(before, hostnames, after):
+    out = list(before)
+    while out and out[-1].strip() == "":
+        out.pop()
+    if hostnames:
+        if out:
+            out.append("")
+        out.append(BEGIN_MARKER)
+        out.extend(f"{ADDRESS}\t{name}" for name in hostnames)
+        out.append(END_MARKER)
+    tail = list(after)
+    while tail and tail[0].strip() == "":
+        tail.pop(0)
+    if tail:
+        out.append("")
+        out.extend(tail)
+    return "\n".join(out) + "\n"
+
+
+def atomic_write(path, content):
+    info = os.stat(path)
+    directory = os.path.dirname(path)
+    fd, tmp_path = tempfile.mkstemp(prefix=".hosts.mini-railway.", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_path, stat.S_IMODE(info.st_mode))
+        if os.geteuid() == 0:
+            os.chown(tmp_path, info.st_uid, info.st_gid)
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="mini-railway-hosts", description=__doc__.split("\n\n")[0], allow_abbrev=False
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name in ("add", "remove"):
+        sub = commands.add_parser(name, allow_abbrev=False)
+        sub.add_argument("hostname")
+    commands.add_parser("list", allow_abbrev=False)
+    args = parser.parse_args()
+
+    root = system_root()
+    hosts_path = os.path.realpath(os.path.join(root, "etc/hosts"))
+    if not os.path.isfile(hosts_path):
+        fail(3, f"{hosts_path} is not a regular file")
+
+    with open_lock(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+
+        with open(hosts_path, encoding="utf-8") as handle:
+            lines = handle.read().split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        before, hostnames, after = split_block(lines)
+
+        if args.command == "list":
+            print(json.dumps({"ok": True, "hostnames": hostnames}))
+            return
+
+        hostname = validate_hostname(args.hostname)
+        changed = False
+        if args.command == "add" and hostname not in hostnames:
+            if len(hostnames) >= MAX_ENTRIES:
+                fail(2, f"too many managed hostnames (limit {MAX_ENTRIES})")
+            hostnames.append(hostname)
+            changed = True
+        elif args.command == "remove" and hostname in hostnames:
+            hostnames.remove(hostname)
+            changed = True
+
+        if changed:
+            atomic_write(hosts_path, render(before, sorted(hostnames), after))
+        print(json.dumps({"ok": True, "hostname": hostname, "changed": changed}))
+
+
+if __name__ == "__main__":
+    main()
