@@ -8,7 +8,7 @@ export function defaultPlatformSettings(): PlatformSettings {
   return {
     workspaceName: "Mini Railway",
     baseDomain,
-    defaultRegion: "eu-west",
+    defaultRegion: "mg-analamanga",
     deployments: {
       autoDeploy: true,
       buildTimeoutMin: 20,

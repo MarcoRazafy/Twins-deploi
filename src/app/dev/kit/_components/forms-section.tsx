@@ -61,7 +61,7 @@ function validateName(name: string): string | null {
 export function FormsSection() {
   const [name, setName] = useState("CanCham Connect");
   const [nameError, setNameError] = useState<string | null>("Un projet porte déjà ce nom.");
-  const [region, setRegion] = useState<Region>("eu-west");
+  const [region, setRegion] = useState<Region>("mg-analamanga");
   const [publicNetworking, setPublicNetworking] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 200);

@@ -8,7 +8,7 @@ export function seedSettings(): PlatformSettings {
   return {
     workspaceName: OWNER_NAME,
     baseDomain: "up.mini-railway.app",
-    defaultRegion: "eu-west",
+    defaultRegion: "mg-analamanga",
     deployments: {
       autoDeploy: true,
       buildTimeoutMin: 20,

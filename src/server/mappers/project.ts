@@ -35,7 +35,7 @@ export function toProject(row: ProjectRow): Project {
     // Validated on write; the fallbacks only protect against hand-edited rows.
     color: PROJECT_COLORS.find((color) => color === row.color) ?? "purple",
     environment: row.environment,
-    region: REGIONS.find((region) => region === row.region) ?? "eu-west",
+    region: REGIONS.find((region) => region === row.region) ?? "mg-analamanga",
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

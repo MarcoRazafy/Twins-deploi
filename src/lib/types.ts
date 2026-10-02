@@ -30,7 +30,8 @@ export const PROJECT_COLORS = [
 ] as const;
 export type ProjectColor = (typeof PROJECT_COLORS)[number];
 
-export const REGIONS = ["eu-west", "us-east", "af-south", "ap-southeast"] as const;
+/** One server, one region: the machine in Analamanga, Madagascar. */
+export const REGIONS = ["mg-analamanga"] as const;
 export type Region = (typeof REGIONS)[number];
 
 export interface Project {
