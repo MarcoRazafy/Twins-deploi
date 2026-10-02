@@ -1,3 +1,4 @@
+import { avatarProblem } from "@/lib/avatar";
 import { ENTITIES, type Api, type DeepPartial } from "@/lib/api/contract";
 import {
   REGIONS,
@@ -185,11 +186,20 @@ export const settingsApi: Api["settings"] = {
       if (db.members.some((member) => member.id !== db.profile.id && member.email === email)) {
         throw conflict("Cette adresse e-mail est déjà utilisée par un membre.", "email");
       }
-      db.profile = { ...db.profile, name, email };
+      let avatarUrl = db.profile.avatarUrl ?? null;
+      if (patch.avatarUrl !== undefined) {
+        if (patch.avatarUrl !== null) {
+          const problem = avatarProblem(patch.avatarUrl);
+          if (problem) throw invalid(problem, "avatarUrl");
+        }
+        avatarUrl = patch.avatarUrl;
+      }
+      db.profile = { ...db.profile, name, email, avatarUrl };
       const self = db.members.find((member) => member.id === db.profile.id);
       if (self) {
         self.name = name;
         self.email = email;
+        self.avatarUrl = avatarUrl;
       }
       emit(["settings"]);
       return db.profile;
@@ -263,6 +273,7 @@ export const settingsApi: Api["settings"] = {
         name: nameFromEmail(email),
         email,
         role: input.role,
+        avatarUrl: null,
         status: "invited",
         joinedAt: iso(),
       };

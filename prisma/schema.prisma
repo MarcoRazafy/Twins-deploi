@@ -37,6 +37,8 @@ model User {
   name         String
   /// scrypt hash ("scrypt$N$r$p$salt$hash"). Null until an invited member sets a password.
   passwordHash String?
+  /// Square profile photo as a data URL (validated and size-capped by the API).
+  avatarUrl    String?
   role         MemberRole   @default(developer)
   status       MemberStatus @default(active)
   createdAt    DateTime     @default(now())

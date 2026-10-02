@@ -1,4 +1,5 @@
 import type { Api, DeepPartial } from "@/lib/api/contract";
+import { avatarProblem } from "@/lib/avatar";
 import { REGIONS, type MemberRole, type PlatformSettings } from "@/lib/types";
 
 import { recordActivity } from "../activity";
@@ -153,10 +154,20 @@ export function createSettingsApi(ctx: Context): Api["settings"] {
       const patch = asRecord(rawPatch);
       const name = patch.name !== undefined ? validPersonName(patch.name) : me.name;
       const email = patch.email !== undefined ? validEmail(patch.email) : me.email;
+      let avatarUrl = me.avatarUrl;
+      if (patch.avatarUrl !== undefined) {
+        if (patch.avatarUrl === null) {
+          avatarUrl = null;
+        } else {
+          const problem = avatarProblem(patch.avatarUrl);
+          if (problem) throw validation(problem, "avatarUrl");
+          avatarUrl = patch.avatarUrl as string;
+        }
+      }
       const taken = await db().user.findFirst({ where: { email, NOT: { id: me.id } } });
       if (taken) throw conflict("Cette adresse e-mail est déjà utilisée par un membre.", "email");
       try {
-        const row = await db().user.update({ where: { id: me.id }, data: { name, email } });
+        const row = await db().user.update({ where: { id: me.id }, data: { name, email, avatarUrl } });
         await emit(["settings"]);
         return toUserProfile(row);
       } catch (error) {

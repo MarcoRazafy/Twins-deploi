@@ -76,6 +76,7 @@ export function UserMenu({ onResetDemo }: { onResetDemo: () => void }) {
 
   const name = profile?.name ?? CURRENT_USER_NAME;
   const email = profile?.email ?? "";
+  const avatarUrl = profile?.avatarUrl ?? null;
   const closeMobile = () => setOpenMobile(false);
 
   return (
@@ -84,7 +85,7 @@ export function UserMenu({ onResetDemo }: { onResetDemo: () => void }) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton size="lg" tooltip={name} aria-label={`Menu du compte, ${name}`}>
-              <UserAvatar name={name} size="md" />
+              <UserAvatar name={name} src={avatarUrl} size="md" />
               <span className="grid min-w-0 flex-1 text-left leading-tight">
                 <span className="truncate text-sm font-medium text-foreground">{name}</span>
                 {email ? (
@@ -102,7 +103,7 @@ export function UserMenu({ onResetDemo }: { onResetDemo: () => void }) {
             className="w-64"
           >
             <DropdownMenuLabel className="flex items-center gap-2.5 p-2 font-normal text-foreground">
-              <UserAvatar name={name} size="md" />
+              <UserAvatar name={name} src={avatarUrl} size="md" />
               <span className="grid min-w-0 flex-1 leading-tight">
                 <span className="truncate text-sm font-medium">{name}</span>
                 {email ? (

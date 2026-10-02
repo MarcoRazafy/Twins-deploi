@@ -471,8 +471,9 @@ export interface Api {
     get(): Promise<PlatformSettings>;
     update(patch: DeepPartial<PlatformSettings>): Promise<PlatformSettings>;
     getProfile(): Promise<UserProfile>;
+    /** `avatarUrl: null` removes the photo. */
     updateProfile(
-      patch: Partial<Pick<UserProfile, "name" | "email">>,
+      patch: Partial<Pick<UserProfile, "name" | "email" | "avatarUrl">>,
     ): Promise<UserProfile>;
     listTokens(): Promise<ApiToken[]>;
     /** `secret` is returned once and never retrievable again. */

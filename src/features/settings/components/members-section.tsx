@@ -94,7 +94,7 @@ function MemberRow({ member, isSelf, role, roleBusy, onRoleChange, onRemove }: M
     <TableRow>
       <TableCell>
         <div className="flex items-center gap-3">
-          <UserAvatar name={member.name} />
+          <UserAvatar name={member.name} src={member.avatarUrl} />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">
               {member.name}

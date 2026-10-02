@@ -1,6 +1,5 @@
 "use client";
 
-import { UserAvatar } from "@/components/shared/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { MEMBER_ROLE_LABELS } from "@/lib/constants";
@@ -9,6 +8,7 @@ import type { UserProfile } from "@/lib/types";
 
 import { useSettingsForm } from "../hooks/use-settings-form";
 import { validateEmail, validateText } from "../lib/validation";
+import { ProfilePhoto } from "./profile-photo";
 import { FormCard, FormCardSkeleton, FormField, QueryBoundary, describedBy } from "./form-parts";
 
 function ProfileCard({ profile }: { profile: UserProfile }) {
@@ -32,15 +32,10 @@ function ProfileCard({ profile }: { profile: UserProfile }) {
       form={form}
     >
       <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <UserAvatar name={values.name.trim() || profile.name} size="lg" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{values.name.trim() || "Sans nom"}</p>
-            <div className="mt-1 flex items-center gap-2">
-              <Badge variant="secondary">{MEMBER_ROLE_LABELS[profile.role]}</Badge>
-              <span className="text-xs text-muted-foreground">Le rôle est géré dans « Membres ».</span>
-            </div>
-          </div>
+        <ProfilePhoto profile={profile} name={values.name.trim() || profile.name} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">{MEMBER_ROLE_LABELS[profile.role]}</Badge>
+          <span className="text-xs text-muted-foreground">Le rôle est géré dans « Membres ».</span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField id="profile-name" label="Nom" error={errors.name}>

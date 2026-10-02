@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PROJECT_COLOR_CLASSES } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -22,17 +22,20 @@ function tintFor(name: string) {
 
 export interface UserAvatarProps {
   name: string;
+  /** Profile photo (data URL or URL). The initials show while it loads and if it fails. */
+  src?: string | null;
   size?: keyof typeof AVATAR_SIZES;
   className?: string;
 }
 
-/** Round avatar with the initials of a person, tinted from their name. */
-export function UserAvatar({ name, size = "md", className }: UserAvatarProps) {
+/** Round avatar: the photo of a person when there is one, otherwise their tinted initials. */
+export function UserAvatar({ name, src, size = "md", className }: UserAvatarProps) {
   const tint = tintFor(name);
   const { avatar, text } = AVATAR_SIZES[size];
 
   return (
     <Avatar size={avatar} title={name} className={className}>
+      {src ? <AvatarImage src={src} alt="" /> : null}
       <AvatarFallback
         className={cn(
           "font-medium group-data-[size=sm]/avatar:text-[10px]",

@@ -47,7 +47,7 @@ export function seedSettings(): PlatformSettings {
 }
 
 export function seedProfile(): UserProfile {
-  return { id: OWNER_ID, name: OWNER_NAME, email: "marco@mini-railway.app", role: "owner" };
+  return { id: OWNER_ID, name: OWNER_NAME, email: "marco@mini-railway.app", role: "owner", avatarUrl: null };
 }
 
 export function seedMembers(clock: SeedClock): TeamMember[] {
@@ -57,6 +57,7 @@ export function seedMembers(clock: SeedClock): TeamMember[] {
       name: "Tiana Rasoanaivo",
       email: "tiana.rasoanaivo@gmail.com",
       role: "viewer",
+      avatarUrl: null,
       status: "invited",
       joinedAt: clock.daysAgo(2),
     },
@@ -65,6 +66,7 @@ export function seedMembers(clock: SeedClock): TeamMember[] {
       name: "Lalaina Andriamanana",
       email: "lalaina@boutique-vanille.mg",
       role: "developer",
+      avatarUrl: null,
       status: "active",
       joinedAt: clock.daysAgo(41),
     },
@@ -73,6 +75,7 @@ export function seedMembers(clock: SeedClock): TeamMember[] {
       name: "Hery Rakotomalala",
       email: "hery@cancham.mg",
       role: "admin",
+      avatarUrl: null,
       status: "active",
       joinedAt: clock.daysAgo(96),
     },
@@ -81,6 +84,7 @@ export function seedMembers(clock: SeedClock): TeamMember[] {
       name: OWNER_NAME,
       email: "marco@mini-railway.app",
       role: "owner",
+      avatarUrl: null,
       status: "active",
       joinedAt: clock.daysAgo(130),
     },

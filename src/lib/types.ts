@@ -652,6 +652,8 @@ export interface UserProfile {
   name: string;
   email: string;
   role: MemberRole;
+  /** Square profile photo as a data URL ("data:image/webp;base64,…"), or null. */
+  avatarUrl: string | null;
 }
 
 /**
@@ -671,6 +673,7 @@ export interface TeamMember {
   name: string;
   email: string;
   role: MemberRole;
+  avatarUrl: string | null;
   status: "active" | "invited";
   joinedAt: ISODate;
 }
