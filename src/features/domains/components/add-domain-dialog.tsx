@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { API_MODE } from "@/lib/api";
 import { getErrorMessage, isApiError } from "@/lib/api/contract";
 import { slugify } from "@/lib/format";
 import { DURATION, EASE, SPRING } from "@/lib/motion";
@@ -120,19 +121,29 @@ function ModeSwitch({ value, onChange }: { value: DomainMode; onChange: (mode: D
   );
 }
 
-function GeneratedPanel({ serviceName }: { serviceName: string | null }) {
+function GeneratedPanel({
+  serviceName,
+  projectName,
+}: {
+  serviceName: string | null;
+  projectName: string | null;
+}) {
   const settings = useSettings();
   const slug = serviceName ? slugify(serviceName) : "service";
+  // The simulator names domains after the environment, the real backend after the project.
+  const middle = API_MODE === "mock" ? "production" : projectName ? slugify(projectName) : "projet";
 
   return (
     <div className="space-y-3 rounded-lg bg-secondary p-3">
       <p className="text-sm text-muted-foreground">
-        Un domaine HTTPS est créé et activé immédiatement : aucune configuration DNS n’est
-        nécessaire. Le nom suit le format service-production-xxxx, suivi du domaine de base de la
-        plateforme.
+        {API_MODE === "mock"
+          ? "Un domaine HTTPS est créé et activé immédiatement : aucune configuration DNS n’est nécessaire. Le nom suit le format service-production-xxxx, suivi du domaine de base de la plateforme."
+          : "Un domaine est créé et activé immédiatement : aucune configuration DNS n’est nécessaire. Le nom suit le format service-projet-xxxx, suivi du domaine de base de la plateforme."}
       </p>
       <div className="flex flex-wrap items-center rounded-md border bg-background px-3 py-2 font-mono text-[13px] break-all">
-        <span>{slug}-production-</span>
+        <span>
+          {slug}-{middle}-
+        </span>
         <span className="text-brand-400">xxxx</span>
         {settings.data ? (
           <span className="text-muted-foreground">.{settings.data.baseDomain}</span>
@@ -247,8 +258,12 @@ function CreateStep({ defaultServiceId, lockService, initialMode, onCreated, onC
         hostname: normalized,
         targetPort: port,
       });
+      // A local name (.test, .localhost) needs no DNS: the backend activates it right away.
       toast.success("Domaine ajouté", {
-        description: `${domain.hostname} · configurez maintenant le DNS.`,
+        description:
+          domain.status === "active"
+            ? `${domain.hostname} · actif, aucune configuration DNS nécessaire.`
+            : `${domain.hostname} · configurez maintenant le DNS.`,
       });
       onCreated(domain);
     } catch (error) {
@@ -308,7 +323,12 @@ function CreateStep({ defaultServiceId, lockService, initialMode, onCreated, onC
             exit={{ opacity: 0, transition: { duration: DURATION.fast } }}
           >
             {mode === "generated" ? (
-              <GeneratedPanel serviceName={service?.name ?? null} />
+              <GeneratedPanel
+                serviceName={service?.name ?? null}
+                projectName={
+                  projects.data?.find((project) => project.id === service?.projectId)?.name ?? null
+                }
+              />
             ) : (
               <div className="grid gap-4 sm:grid-cols-[1fr_9rem]">
                 <Field data-invalid={errors.hostname ? true : undefined}>
@@ -331,7 +351,8 @@ function CreateStep({ defaultServiceId, lockService, initialMode, onCreated, onC
                     className="font-mono text-[13px] md:text-[13px]"
                   />
                   <FieldDescription>
-                    Nom complet, sous-domaine compris. Démo : un nom en .invalid simule un échec DNS.
+                    Nom complet, sous-domaine compris.
+                    {API_MODE === "mock" ? " Démo : un nom en .invalid simule un échec DNS." : null}
                   </FieldDescription>
                   <FieldError>{errors.hostname}</FieldError>
                 </Field>
@@ -440,8 +461,8 @@ function DomainDialogBody({
       onCancel={onClose}
       onCreated={(domain) => {
         onCreated?.(domain);
-        // A generated domain is live at once; a custom one needs its DNS records.
-        if (domain.kind === "custom") setCreated(domain);
+        // A generated domain is live at once, like a local custom one; the others need their DNS records.
+        if (domain.kind === "custom" && domain.status !== "active") setCreated(domain);
         else onClose();
       }}
     />

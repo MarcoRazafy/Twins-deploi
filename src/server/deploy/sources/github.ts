@@ -22,6 +22,7 @@ import { imageReferenceFor } from "../../deployments/enqueue";
 import { docker, DockerError, LABEL_DEPLOYMENT, LABEL_MANAGED, LABEL_SERVICE } from "../../docker/cli";
 import { env } from "../../env";
 import { unavailable, validation } from "../../errors";
+import { emit } from "../../events";
 import { syncRepository } from "../../git/repository";
 import { normalizeRootDirectory } from "../../services/validate";
 import { resolveEnvironment, variableValue } from "../../variables/store";
@@ -134,6 +135,23 @@ export async function prepareGithubImage(context: ImageBuildContext): Promise<Im
   });
   const { commit } = synced;
   log("info", `Checked out ${commit.sha.slice(0, 7)} "${commit.message}"${commit.author ? ` by ${commit.author}` : ""}`);
+
+  // The message and author are only known once the commit is fetched: saved now, so
+  // that they show during the build and stay on a deployment whose build fails.
+  await db().deployment.updateMany({
+    where: { id: deployment.id },
+    data: {
+      commitSha: commit.sha,
+      commitMessage: commit.message,
+      commitAuthor: commit.author,
+      commitBranch: commit.branch,
+    },
+  });
+  await emit(["deployments"], {
+    projectId: service.projectId,
+    serviceId: service.id,
+    deploymentId: deployment.id,
+  });
 
   // Recorded before the build: a commit that fails to build must not be queued again by the sync loop.
   // A rollback keeps the value, otherwise the loop would redeploy the branch tip right after it.

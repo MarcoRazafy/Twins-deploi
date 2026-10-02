@@ -275,3 +275,60 @@ export async function resolveBranchTip(
   }
   return null;
 }
+
+export interface RemoteBranch {
+  name: string;
+  sha: string;
+  isDefault: boolean;
+}
+
+/**
+ * Branches of the remote read with git alone (no GitHub API): that is how a
+ * public repository is browsed while no GitHub account is connected. The
+ * default branch (target of HEAD) comes first. Same errors as resolveBranchTip.
+ */
+export async function listRemoteBranches(
+  repo: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<RemoteBranch[]> {
+  const url = remoteUrl(repo);
+  const auth = buildGitEnvironment(await getGitCredentials());
+  let result: RunResult;
+  try {
+    result = await git(["ls-remote", "--symref", "--", url, "HEAD", "refs/heads/*"], {
+      auth,
+      timeoutMs: LS_REMOTE_TIMEOUT_MS,
+      signal: options.signal,
+    });
+  } catch (error) {
+    const explained = explain(error, repo, "");
+    if (explained instanceof ApiError && explained.code === "unavailable" && error instanceof GitError) {
+      throw unavailable(
+        error.kind === "timeout"
+          ? `GitHub n’a pas répondu à temps pour le dépôt ${repo}.`
+          : `Le dépôt ${repo} n’a pas pu être consulté.`,
+      );
+    }
+    throw explained;
+  }
+
+  const prefix = "refs/heads/";
+  let defaultBranch: string | null = null;
+  const branches: RemoteBranch[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const [first, second, third] = line.trim().split(/\s+/);
+    // "ref: refs/heads/main	HEAD" names the default branch.
+    if (first === "ref:" && third === "HEAD" && second?.startsWith(prefix)) {
+      defaultBranch = second.slice(prefix.length);
+      continue;
+    }
+    if (first === undefined || second === undefined || !SHA_PATTERN.test(first)) continue;
+    if (!second.startsWith(prefix)) continue;
+    branches.push({ name: second.slice(prefix.length), sha: first, isDefault: false });
+  }
+  for (const branch of branches) branch.isDefault = branch.name === defaultBranch;
+  branches.sort((a, b) =>
+    a.isDefault !== b.isDefault ? (a.isDefault ? -1 : 1) : a.name.localeCompare(b.name),
+  );
+  return branches.slice(0, options.limit ?? branches.length);
+}

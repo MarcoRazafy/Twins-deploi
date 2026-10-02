@@ -17,6 +17,8 @@ import {
 
 const RPC_URL = "/api/rpc";
 const EVENTS_URL = "/api/events";
+/** Delay before a closed event stream is opened again. */
+const RECONNECT_DELAY_MS = 5_000;
 const ERROR_CODES: readonly ApiErrorCode[] = [
   "not_found",
   "validation",
@@ -76,6 +78,7 @@ function createEventHub(): Api["events"] {
   const listeners = new Set<(event: ApiEvent) => void>();
   let source: EventSource | null = null;
   let interrupted = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
 
   const dispatch = (event: ApiEvent): void => {
     for (const listener of [...listeners]) {
@@ -89,19 +92,31 @@ function createEventHub(): Api["events"] {
 
   const open = (): void => {
     if (source || typeof EventSource === "undefined") return;
-    source = new EventSource(EVENTS_URL, { withCredentials: true });
-    source.onmessage = (message: MessageEvent<string>) => {
+    const current = new EventSource(EVENTS_URL, { withCredentials: true });
+    source = current;
+    current.onmessage = (message: MessageEvent<string>) => {
       try {
         dispatch(JSON.parse(message.data) as ApiEvent);
       } catch {
         // Malformed frame: ignore it.
       }
     };
-    // The browser reconnects by itself; events emitted meanwhile were missed.
-    source.onerror = () => {
+    current.onerror = () => {
       interrupted = true;
+      // The browser reconnects by itself after a network cut, but gives up for
+      // good on an HTTP error (expired session, proxy error page): open a new
+      // stream later, as long as someone still listens.
+      if (current.readyState !== EventSource.CLOSED || source !== current) return;
+      source = null;
+      if (retry === null && listeners.size > 0) {
+        retry = setTimeout(() => {
+          retry = null;
+          if (listeners.size > 0) open();
+        }, RECONNECT_DELAY_MS);
+      }
     };
-    source.onopen = () => {
+    // Events emitted while the stream was down were missed: refresh everything.
+    current.onopen = () => {
       if (!interrupted) return;
       interrupted = false;
       dispatch({ entities: [...ENTITIES] });
@@ -114,11 +129,14 @@ function createEventHub(): Api["events"] {
       open();
       return () => {
         listeners.delete(listener);
-        if (listeners.size === 0 && source) {
-          source.close();
-          source = null;
-          interrupted = false;
+        if (listeners.size > 0) return;
+        if (retry !== null) {
+          clearTimeout(retry);
+          retry = null;
         }
+        source?.close();
+        source = null;
+        interrupted = false;
       };
     },
   };

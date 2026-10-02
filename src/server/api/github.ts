@@ -10,7 +10,7 @@ import { enqueueDeployment } from "../deployments/enqueue";
 import { forbidden, notFound, unavailable, validation } from "../errors";
 import { emit } from "../events";
 import { GITHUB_CONNECTION_ID, getGithubToken } from "../github/auth";
-import { resolveBranchTip } from "../git/repository";
+import { listRemoteBranches, resolveBranchTip } from "../git/repository";
 import { createTtlCache } from "../github/cache";
 import { githubGet, githubList, githubRequest } from "../github/client";
 import { firstLine, toGithubBranch, toGithubConnection, toGithubOrganization, toGithubRepo } from "../mappers/github";
@@ -111,6 +111,31 @@ async function readTipCommit(token: string, repo: string, branch: string): Promi
     author: asString(asRecord(commit.author).name) || asString(asRecord(tip.author).login),
     branch,
   };
+}
+
+/**
+ * Branches of a public repository while GitHub is not connected, read with
+ * git: only the tip sha is known (no message, author or date).
+ */
+async function probePublicBranches(repo: string): Promise<GithubBranch[]> {
+  let remote;
+  try {
+    remote = await listRemoteBranches(repo, { limit: MAX_BRANCHES });
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "forbidden") {
+      throw forbidden(
+        `Le dépôt ${repo} est privé ou introuvable. Connectez GitHub avec un jeton d’accès pour y accéder.`,
+      );
+    }
+    throw error;
+  }
+  const date = new Date().toISOString();
+  return remote.map((branch) => ({
+    name: branch.name,
+    isDefault: branch.isDefault,
+    protected: false,
+    lastCommit: { sha: branch.sha, message: "", author: "", date },
+  }));
 }
 
 /**
@@ -259,7 +284,10 @@ export function createGithubApi(ctx: Context): Api["github"] {
     async listBranches(rawRepo) {
       const repo = asString(rawRepo).trim();
       assertRepo(repo, "repo");
-      const token = await requireToken();
+      const token = await getGithubToken();
+      if (token === null) {
+        return branchCache.get(`public:${repo.toLowerCase()}`, () => probePublicBranches(repo));
+      }
       return branchCache.get(`${cacheKey(token)}:${repo.toLowerCase()}`, () => fetchBranches(token, repo));
     },
 

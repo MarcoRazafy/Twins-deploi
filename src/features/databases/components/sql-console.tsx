@@ -9,6 +9,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useHotkeyLabel } from "@/hooks/use-hotkey";
+import { API_MODE } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api/contract";
 import { formatNumber, formatTime, pluralize } from "@/lib/format";
 import { useDatabaseTables, useRunDatabaseQuery } from "@/lib/queries";
@@ -126,7 +127,10 @@ export function SqlConsole({ databaseId }: { databaseId: string }) {
 
         <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
           <Info className="size-3.5 shrink-0" aria-hidden="true" />
-          Le simulateur ne comprend que des requêtes SELECT simples. Exécution :
+          {API_MODE === "mock"
+            ? "Le simulateur ne comprend que des requêtes SELECT simples."
+            : "Console en lecture seule : 500 lignes au maximum, délai de 5 s."}{" "}
+          Exécution :
           <span className="inline-flex gap-1">
             {shortcut.map((key) => (
               <Kbd key={key}>{key}</Kbd>

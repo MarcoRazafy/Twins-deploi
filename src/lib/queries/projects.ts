@@ -8,7 +8,9 @@ import type { ID } from "@/lib/types";
 import {
   CASCADE_ENTITIES,
   invalidateEntities,
+  markDeleted,
   purgeEntities,
+  unmarkDeleted,
   queryKeys,
   type MaybeId,
 } from "./keys";
@@ -52,6 +54,9 @@ export function useDeleteProject() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: ID) => api.projects.delete(id),
+    // From now on nothing refetches the item itself: see `markDeleted`.
+    onMutate: (id) => markDeleted(id),
+    onError: (_error, id) => unmarkDeleted(id),
     onSuccess: () => purgeEntities(queryClient, CASCADE_ENTITIES),
   });
 }

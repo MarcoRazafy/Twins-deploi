@@ -93,8 +93,7 @@ export function BranchSelect({
                 </span>
                 <span className="max-w-full truncate text-xs text-muted-foreground">
                   <span className="font-mono">{shortSha(branch.lastCommit.sha)}</span>
-                  {" · "}
-                  {branch.lastCommit.message}
+                  {branch.lastCommit.message ? ` · ${branch.lastCommit.message}` : null}
                 </span>
               </span>
             ) : (

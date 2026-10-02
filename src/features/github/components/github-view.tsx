@@ -10,6 +10,7 @@ import { PageContainer, PageHeader } from "@/components/shared/page";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryParam } from "@/hooks/use-query-param";
+import { API_MODE } from "@/lib/api";
 import { useGithubConnection } from "@/lib/queries";
 import type { GithubRepo } from "@/lib/types";
 
@@ -45,6 +46,8 @@ export function GithubView() {
 
   const data = connection.data;
   const connected = data?.connected === true;
+  // Without an account, only the real backend can import (public repositories, read with git).
+  const publicImport = API_MODE === "http" && data?.connected === false;
   // `?new=1` opens the dialog on arrival; closing it removes the parameter.
   const importOpen = manualImport.open || newParam === "1";
 
@@ -76,8 +79,10 @@ export function GithubView() {
     );
   } else if (!connected) {
     body = (
-      <FadeIn key="onboarding">
+      <FadeIn key="onboarding" className="space-y-8">
         <GithubOnboarding onConnect={() => setConnectOpen(true)} />
+        {/* The real backend deploys public repositories without an account: those services stay manageable here. */}
+        {publicImport ? <ConnectedServices onImport={() => openImport(null)} /> : null}
       </FadeIn>
     );
   } else {
@@ -97,10 +102,10 @@ export function GithubView() {
         icon={GithubIcon}
         description="Importez vos dépôts et choisissez la branche déployée à chaque push."
         actions={
-          connected ? (
-            <Button type="button" onClick={() => openImport(null)}>
+          connected || publicImport ? (
+            <Button type="button" variant={connected ? "default" : "outline"} onClick={() => openImport(null)}>
               <Download data-icon="inline-start" />
-              Importer un dépôt
+              {connected ? "Importer un dépôt" : "Importer un dépôt public"}
             </Button>
           ) : undefined
         }

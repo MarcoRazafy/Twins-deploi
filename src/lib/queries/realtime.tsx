@@ -5,6 +5,7 @@ import { useEffect } from "react";
 
 import { api, type EntityName } from "@/lib/api";
 
+import { useSession } from "./auth";
 import { invalidateEntities } from "./keys";
 
 /** Events arriving within this window share one round of invalidations. */
@@ -17,8 +18,12 @@ const COALESCE_MS = 120;
  */
 export function useRealtimeSync(): void {
   const queryClient = useQueryClient();
+  // The event stream requires a session: it is opened once signed in (not on
+  // the login and setup screens) and closed on sign-out.
+  const signedIn = useSession().data?.status === "authenticated";
 
   useEffect(() => {
+    if (!signedIn) return;
     const touched = new Set<EntityName>();
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -38,7 +43,7 @@ export function useRealtimeSync(): void {
       unsubscribe();
       if (timer !== null) clearTimeout(timer);
     };
-  }, [queryClient]);
+  }, [queryClient, signedIn]);
 }
 
 /** Mounts the realtime bridge; renders nothing. */

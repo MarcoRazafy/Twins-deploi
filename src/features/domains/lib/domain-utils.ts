@@ -202,9 +202,15 @@ export function deriveDomainSteps(domain: Domain): DomainStep[] {
       ];
     case "active":
       return [
-        dns("done", dnsDone),
-        ssl("done", sslDone),
-        live("done", "Le domaine est en ligne et sert votre service."),
+        dns("done", domain.dnsRecords.length === 0 ? "Aucun enregistrement à créer pour ce domaine." : dnsDone),
+        // Local domains (.test, .localhost) are served over plain HTTP: no certificate step.
+        ...(domain.ssl.status === "issued" ? [ssl("done", sslDone)] : []),
+        live(
+          "done",
+          domain.ssl.status === "issued"
+            ? "Le domaine est en ligne et sert votre service."
+            : "Le domaine est en ligne et sert votre service en HTTP, sans certificat.",
+        ),
       ];
     case "error":
       return domain.ssl.status === "error"

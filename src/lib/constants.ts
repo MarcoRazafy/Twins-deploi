@@ -8,7 +8,7 @@ export const APP_DESCRIPTION =
 export const CURRENT_USER_NAME = "Marco Razafy";
 
 export const REGION_LABELS: Record<Region, string> = {
-  "eu-west": "Europe de l'Ouest · Paris",
+  "eu-west": "Europe de l’Ouest · Paris",
   "us-east": "US Est · Virginie",
   "af-south": "Afrique australe · Johannesburg",
   "ap-southeast": "Asie du Sud-Est · Singapour",

@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { API_MODE } from "@/lib/api";
 import { isApiError } from "@/lib/api/contract";
 import { useCreateApiToken } from "@/lib/queries";
 
@@ -33,10 +34,20 @@ const EXPIRY_OPTIONS = [
 ] as const;
 
 function usageSnippet(secret: string): string {
+  // The simulator has no server: its example keeps a placeholder address.
+  if (API_MODE === "mock" || typeof window === "undefined") {
+    return [
+      "# Lister vos projets avec ce jeton",
+      "curl https://api.mini-railway.app/v1/projects \\",
+      `  -H "Authorization: Bearer ${secret}"`,
+    ].join("\n");
+  }
   return [
     "# Lister vos projets avec ce jeton",
-    "curl https://api.mini-railway.app/v1/projects \\",
-    `  -H "Authorization: Bearer ${secret}"`,
+    `curl -X POST ${window.location.origin}/api/rpc \\`,
+    `  -H "Authorization: Bearer ${secret}" \\`,
+    '  -H "Content-Type: application/json" -H "X-Mini-Railway: 1" \\',
+    `  -d '{"method":"projects.list","args":[]}'`,
   ].join("\n");
 }
 

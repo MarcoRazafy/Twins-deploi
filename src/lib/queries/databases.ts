@@ -43,10 +43,12 @@ export function useDatabaseByService(serviceId: MaybeId) {
   });
 }
 
-export function useDatabaseTables(databaseId: MaybeId) {
+/** `enabled: false` while the database is not reachable yet (first deployment in progress). */
+export function useDatabaseTables(databaseId: MaybeId, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.databases.tables(databaseId),
     queryFn: databaseId ? () => api.databases.listTables(databaseId) : skipToken,
+    enabled: options?.enabled ?? true,
   });
 }
 

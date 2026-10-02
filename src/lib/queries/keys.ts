@@ -179,8 +179,38 @@ export async function invalidateEntities(
   entities: readonly EntityName[],
 ): Promise<void> {
   await Promise.all(
-    entities.map((entity) => queryClient.invalidateQueries({ queryKey: [entity] })),
+    entities.map((entity) =>
+      queryClient.invalidateQueries({
+        queryKey: [entity],
+        predicate: (query) => !targetsDeleted(query.queryKey),
+      }),
+    ),
   );
+}
+
+/**
+ * Ids being deleted (or already gone). A view that still shows the deleted
+ * item for a moment (open panel, settings page about to navigate away) must
+ * not refetch it: a real backend answers "not found" to those requests.
+ */
+const deletedIds = new Set<string>();
+
+export function markDeleted(id: string): void {
+  deletedIds.add(id);
+}
+
+/** The deletion failed: the item is still there and refreshes as usual. */
+export function unmarkDeleted(id: string): void {
+  deletedIds.delete(id);
+}
+
+function targetsDeleted(queryKey: readonly unknown[]): boolean {
+  if (deletedIds.size === 0) return false;
+  return queryKey.some((part) => {
+    if (typeof part === "string") return deletedIds.has(part);
+    if (typeof part !== "object" || part === null) return false;
+    return Object.values(part).some((value) => typeof value === "string" && deletedIds.has(value));
+  });
 }
 
 /**

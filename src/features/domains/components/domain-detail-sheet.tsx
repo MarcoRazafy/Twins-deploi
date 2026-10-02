@@ -75,7 +75,8 @@ function SheetBody({ domain, actions }: { domain: Domain; actions: DomainActions
           <DomainStepper domain={domain} />
         </SectionCard>
 
-        {domain.kind === "custom" ? (
+        {/* A local domain (.test, .localhost) has no record to create. */}
+        {domain.kind === "custom" && domain.dnsRecords.length > 0 ? (
           <SectionCard
             title="Enregistrements DNS à créer"
             description="Ils relient le domaine à la plateforme et prouvent que vous en êtes propriétaire."

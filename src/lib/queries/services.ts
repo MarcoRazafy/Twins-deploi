@@ -15,7 +15,9 @@ import type { ContainerAction, ID, Position, Service } from "@/lib/types";
 import {
   CASCADE_ENTITIES,
   invalidateEntities,
+  markDeleted,
   purgeEntities,
+  unmarkDeleted,
   queryKeys,
   SERVICE_STATE_ENTITIES,
   type MaybeId,
@@ -116,6 +118,9 @@ export function useDeleteService() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: ID) => api.services.delete(id),
+    // From now on nothing refetches the item itself: see `markDeleted`.
+    onMutate: (id) => markDeleted(id),
+    onError: (_error, id) => unmarkDeleted(id),
     onSuccess: () => purgeEntities(queryClient, CASCADE_ENTITIES),
   });
 }

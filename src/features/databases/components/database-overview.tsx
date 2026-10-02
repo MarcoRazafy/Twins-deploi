@@ -17,6 +17,7 @@ import {
   formatRelativeTime,
 } from "@/lib/format";
 import { useDatabaseBackups, useDatabaseTables, useServiceMetrics } from "@/lib/queries";
+import { isServiceBusy } from "@/lib/status";
 import { METRIC_RANGES, type Database, type MetricRange } from "@/lib/types";
 
 import { storagePercent, storageTone } from "../lib/database-utils";
@@ -51,7 +52,8 @@ function ChartCard({
 export function DatabaseOverview({ database }: { database: Database }) {
   const now = useNow(60_000);
   const [range, setRange] = useState<MetricRange>("1h");
-  const tables = useDatabaseTables(database.id);
+  // A database that is still being deployed cannot be queried yet.
+  const tables = useDatabaseTables(database.id, { enabled: !isServiceBusy(database.status) });
   const backups = useDatabaseBackups(database.id);
   const metrics = useServiceMetrics(database.serviceId, range);
   const percent = storagePercent(database);

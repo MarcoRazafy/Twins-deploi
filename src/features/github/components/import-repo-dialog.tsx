@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { API_MODE } from "@/lib/api";
 import { getErrorMessage, isApiError } from "@/lib/api/contract";
 import { fadeUp } from "@/lib/motion";
 import {
@@ -153,24 +154,6 @@ function ImportFlow({ defaultProjectId, defaultRepo, onImported }: ImportFlowPro
         }}
       />
     );
-  } else if (!data.connected) {
-    body = (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-8 text-center">
-        <div className="flex size-11 items-center justify-center rounded-xl bg-secondary ring-1 ring-border-strong">
-          <GithubIcon aria-hidden className="size-5" />
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-medium">GitHub n’est pas connecté</p>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            Connectez votre compte pour lister vos dépôts et les importer.
-          </p>
-        </div>
-        <Button type="button" onClick={() => setConnectOpen(true)}>
-          <GithubIcon data-icon="inline-start" />
-          Connecter GitHub
-        </Button>
-      </div>
-    );
   } else if (repo) {
     body = (
       <ConfigureStep
@@ -180,6 +163,28 @@ function ImportFlow({ defaultProjectId, defaultRepo, onImported }: ImportFlowPro
         onBack={() => setRepo(null)}
         onImported={onImported}
       />
+    );
+  } else if (!data.connected) {
+    body = (
+      <div className="grid grid-cols-1 gap-3">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-8 text-center">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-secondary ring-1 ring-border-strong">
+            <GithubIcon aria-hidden className="size-5" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">GitHub n’est pas connecté</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Connectez votre compte pour lister vos dépôts et les importer.
+            </p>
+          </div>
+          <Button type="button" onClick={() => setConnectOpen(true)}>
+            <GithubIcon data-icon="inline-start" />
+            Connecter GitHub
+          </Button>
+        </div>
+        {/* The simulator only knows its own repositories: public import needs the real backend. */}
+        {API_MODE === "http" ? <PublicRepoForm onSelect={setRepo} /> : null}
+      </div>
     );
   } else {
     body = <RepoStep connection={data} onSelect={setRepo} />;
@@ -199,6 +204,81 @@ function ImportFlow({ defaultProjectId, defaultRepo, onImported }: ImportFlowPro
       </motion.div>
       <ConnectGithubDialog open={connectOpen} onOpenChange={setConnectOpen} />
     </div>
+  );
+}
+
+const PUBLIC_REPO_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/;
+
+/** "owner/name" out of what was typed or pasted (a github.com URL is accepted). */
+function parsePublicRepo(value: string): string | null {
+  const cleaned = value
+    .trim()
+    .replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "")
+    .replace(/\.git$/i, "")
+    .replace(/\/+$/, "");
+  return PUBLIC_REPO_PATTERN.test(cleaned) ? cleaned : null;
+}
+
+/** Without a connected account a public repository can still be imported by its name. */
+function PublicRepoForm({ onSelect }: { onSelect: (repo: GithubRepo) => void }) {
+  const id = useId();
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    // The dialog can sit inside another form (portals bubble through React).
+    event.stopPropagation();
+    const fullName = parsePublicRepo(value);
+    if (!fullName) {
+      setError("Saisissez un dépôt au format « propriétaire/nom ».");
+      return;
+    }
+    const [owner, name] = fullName.split("/");
+    onSelect({
+      id: `public:${fullName}`,
+      owner,
+      name,
+      fullName,
+      description: "",
+      private: false,
+      language: null,
+      framework: null,
+      // Replaced by the default branch of the remote once its branches are read.
+      defaultBranch: "main",
+      stars: 0,
+      pushedAt: new Date().toISOString(),
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} noValidate className="rounded-xl border bg-card px-4 py-3">
+      <Field data-invalid={error ? true : undefined}>
+        <FieldLabel htmlFor={id}>Importer un dépôt public</FieldLabel>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            id={id}
+            value={value}
+            onChange={(event) => {
+              setValue(event.target.value);
+              setError(null);
+            }}
+            placeholder="propriétaire/dépôt"
+            autoComplete="off"
+            spellCheck={false}
+            aria-invalid={Boolean(error) || undefined}
+            className="font-mono text-[13px] sm:flex-1"
+          />
+          <Button type="submit" variant="outline">
+            Continuer
+          </Button>
+        </div>
+        <FieldDescription>
+          Aucun jeton n’est nécessaire pour un dépôt public. Les dépôts privés demandent un compte connecté.
+        </FieldDescription>
+        <FieldError>{error}</FieldError>
+      </Field>
+    </form>
   );
 }
 
@@ -322,7 +402,9 @@ function ConfigureStep({ repo, defaultProjectId, onBack, onImported }: Configure
   const busy = createProject.isPending || importRepo.isPending;
   // Without any project the only way forward is to create one.
   const creating = projectMode === "new" || (projects.isSuccess && projects.data.length === 0);
-  const branchValue = branch ?? repo.defaultBranch;
+  // A repository typed by hand does not know its default branch: the remote does.
+  const remoteDefault = branches.data?.find((item) => item.isDefault)?.name;
+  const branchValue = branch ?? remoteDefault ?? repo.defaultBranch;
   const nameValue = name ?? repo.name;
 
   function clearError(key: keyof FormErrors) {
