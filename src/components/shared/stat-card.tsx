@@ -89,6 +89,9 @@ function Trend({ trend }: { trend: StatTrend }) {
  * KPI tile: label, value, and optionally a trend, a hint and a sparkline.
  * The loading state keeps the exact geometry of the loaded one.
  */
+/** Decorative icon tiles are turned off: labels carry the meaning on their own. */
+const SHOW_DECORATIVE_ICONS: boolean = false;
+
 export function StatCard({
   label,
   value,
@@ -112,7 +115,7 @@ export function StatCard({
     <>
       <div className="flex min-h-8 items-center justify-between gap-3">
         <p className="truncate text-sm text-muted-foreground">{label}</p>
-        {icon ? (
+        {SHOW_DECORATIVE_ICONS && icon ? (
           <span
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-lg",

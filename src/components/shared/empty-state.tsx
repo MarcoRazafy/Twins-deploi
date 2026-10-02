@@ -33,6 +33,9 @@ export interface EmptyStateProps {
   className?: string;
 }
 
+/** Decorative icon tiles are turned off: the title carries the meaning on its own. */
+const SHOW_DECORATIVE_ICONS: boolean = false;
+
 /** "Nothing here yet": icon, title, guidance and the action to get started. */
 export function EmptyState({
   icon,
@@ -61,6 +64,7 @@ export function EmptyState({
         className={cn("flex w-full flex-col items-center", compact ? "gap-3" : "gap-4")}
       >
         <EmptyHeader>
+{SHOW_DECORATIVE_ICONS ? (
           <EmptyMedia
             variant="icon"
             className={cn(
@@ -70,6 +74,7 @@ export function EmptyState({
           >
             {renderIcon(icon)}
           </EmptyMedia>
+          ) : null}
           <EmptyTitle className={cn(!compact && "text-base")}>{title}</EmptyTitle>
           {description ? <EmptyDescription>{description}</EmptyDescription> : null}
         </EmptyHeader>
