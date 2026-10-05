@@ -183,7 +183,14 @@ continu ; `cancelRequested` est vérifié entre les étapes et tue la commande e
 6. En cas d'échec : le nouveau conteneur est supprimé après capture de ses derniers logs, l'ancien continue de servir.
 
 Variables injectées : variables partagées du projet, puis variables du service (elles
-priment), références `${{Service.CLE}}` et `${{shared.CLE}}` résolues, plus `PORT`.
+priment), références `${{Service.CLE}}` et `${{shared.CLE}}` résolues, puis les variables
+de la plateforme (`src/lib/variables/builtin.ts`, elles priment sur tout) : `PORT`,
+`TWINS_PUBLIC_DOMAIN`, `TWINS_PRIVATE_DOMAIN` (`<slug>.twinsdeploi.internal`, alias réseau
+du conteneur dans le projet), `TWINS_PROJECT_NAME`, `TWINS_PROJECT_ID`, `TWINS_SERVICE_NAME`,
+`TWINS_SERVICE_ID`, `TWINS_ENVIRONMENT_NAME`, `TWINS_REGION`, `TWINS_DEPLOYMENT_ID` et, avec un
+volume, `TWINS_VOLUME_NAME` et `TWINS_VOLUME_MOUNT_PATH`. Le préfixe `TWINS_` est réservé.
+Un autre service du projet les référence avec `${{Service.TWINS_PUBLIC_DOMAIN}}` ;
+l'API `variables.builtins(serviceId)` les expose à l'interface (page Variables d'un service).
 
 ### Générateur de Dockerfile (`builder: "nixpacks"`)
 

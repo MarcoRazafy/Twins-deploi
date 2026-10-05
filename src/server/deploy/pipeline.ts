@@ -46,6 +46,7 @@ import { getPlatformSettings } from "../platform-settings";
 import { imageRepositoryFor, projectNetworkName } from "../services/names";
 import { statusEntities } from "../services/status";
 import { buildContainerEnvironment, removeEnvFile, writeEnvFile } from "./env-file";
+import { privateDomainOf } from "@/lib/variables/builtin";
 import { allocateHostPort } from "./ports";
 import { settleServiceStatus } from "./service-status";
 import { prepareGithubImage } from "./sources/github";
@@ -341,7 +342,7 @@ async function startContainer(state: RunState): Promise<{ containerId: string; h
     });
   }
 
-  const environment = await buildContainerEnvironment(service, service.database);
+  const environment = await buildContainerEnvironment(service, service.database, deployment.id);
   for (const warning of environment.warnings) state.log("warn", warning);
   state.log("info", `Injecting ${Object.keys(environment.variables).length} environment variables`);
 
@@ -358,7 +359,7 @@ async function startContainer(state: RunState): Promise<{ containerId: string; h
       name,
       image: state.image,
       network,
-      aliases: [service.slug, `${service.slug}.railway.internal`],
+      aliases: [service.slug, privateDomainOf(service.slug), `${service.slug}.railway.internal`],
       hostPort,
       containerPort: service.port,
       envFile: "",

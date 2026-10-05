@@ -87,7 +87,8 @@ Vue d’ensemble : indicateurs (projets, services en ligne, déploiements sur 24
 - Secret : interrupteur « Secret » (ou « Marquer comme secret » / « Retirer le secret ») : la valeur est chiffrée et masquée dans l’interface.
 - Éditeur brut : coller un contenu .env au format NOM=valeur, « Vérifier les changements » puis « Appliquer ». « Copier en .env » exporte les variables.
 - Références : \`\${{NomDuService.CLE}}\` prend la valeur d’une variable d’un autre service du projet (ex. \`\${{postgres.DATABASE_URL}}\`) ; \`\${{shared.CLE}}\` prend une variable partagée. La référence est résolue au déploiement.
-- Une modification n’est appliquée qu’au prochain déploiement : un bandeau propose « Redéployer ». La variable \`PORT\` est fournie automatiquement au conteneur.
+- Une modification n’est appliquée qu’au prochain déploiement : un bandeau propose « Redéployer ».
+- Variables fournies par la plateforme (bloc « Variables fournies par la plateforme » sous les variables d’un service, lecture seule) : \`PORT\` (port à écouter), \`TWINS_PUBLIC_DOMAIN\` (domaine public du service), \`TWINS_PRIVATE_DOMAIN\` (nom interne \`<service>.twinsdeploi.internal\` pour joindre le service depuis un autre service du projet), \`TWINS_PROJECT_NAME\`, \`TWINS_PROJECT_ID\`, \`TWINS_SERVICE_NAME\`, \`TWINS_SERVICE_ID\`, \`TWINS_ENVIRONMENT_NAME\`, \`TWINS_REGION\`, \`TWINS_DEPLOYMENT_ID\`, et avec un volume \`TWINS_VOLUME_NAME\` et \`TWINS_VOLUME_MOUNT_PATH\`. Elles sont ajoutées au conteneur à chaque déploiement ; l’application les lit dans son environnement (ex. process.env.TWINS_PUBLIC_DOMAIN). Un autre service les référence avec \`\${{NomDuService.TWINS_PUBLIC_DOMAIN}}\`. Le préfixe TWINS_ est réservé : impossible de créer une variable qui commence ainsi.
 
 # Domaines
 - Menu « Domaines » : liste avec statut, port, recherche et filtres (projet, service, statut). Bouton « Ajouter un domaine » : choisir le service puis « Domaine généré » ou « Domaine personnalisé ».

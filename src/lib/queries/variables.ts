@@ -22,6 +22,15 @@ export function useVariables(filter?: VariableFilter, options?: QueryHookOptions
   });
 }
 
+/** PORT and TWINS_*: computed, so refreshed with the service and its domains. */
+export function useBuiltinVariables(serviceId: ID | null, options?: QueryHookOptions) {
+  return useQuery({
+    queryKey: queryKeys.variables.builtins(serviceId ?? ""),
+    queryFn: () => api.variables.builtins(serviceId ?? ""),
+    enabled: serviceId !== null && (options?.enabled ?? true),
+  });
+}
+
 /** Variable counts live in the project summaries, hence "projects". */
 export function useCreateVariable() {
   const queryClient = useQueryClient();

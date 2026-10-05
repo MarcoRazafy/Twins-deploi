@@ -13,6 +13,7 @@ import { decryptSecret } from "../crypto";
 import { env } from "../env";
 import { validation } from "../errors";
 import { VARIABLE_KEY_PATTERN } from "../rules";
+import { loadBuiltinVariables } from "../variables/builtin";
 import { resolveEnvironment } from "../variables/store";
 
 export interface ContainerEnvironment {
@@ -30,13 +31,15 @@ export interface ContainerEnvironment {
 const POSTGRES_CLIENT_ONLY = ["PGHOST", "PGPORT"];
 
 /**
- * Shared variables, then the service's own, references resolved, plus PORT (the
- * port the platform publishes) and, for PostgreSQL, the credentials the image
- * initialises the database with.
+ * Shared variables, then the service's own, references resolved, then the
+ * platform variables (PORT, TWINS_*: they win over a user variable of the same
+ * name) and, for PostgreSQL, the credentials the image initialises the
+ * database with.
  */
 export async function buildContainerEnvironment(
   service: Service,
   database: ManagedDatabase | null,
+  deploymentId: string,
 ): Promise<ContainerEnvironment> {
   const resolved = await resolveEnvironment(service.id);
   const variables: Record<string, string> = {};
@@ -48,7 +51,12 @@ export async function buildContainerEnvironment(
     }
     variables[key] = value;
   }
-  variables.PORT = String(service.port);
+  for (const builtin of await loadBuiltinVariables(service.id, deploymentId)) {
+    if (builtin.key in variables && variables[builtin.key] !== builtin.value) {
+      warnings.push(`La variable ${builtin.key} est fournie par la plateforme : la valeur définie dans le service est ignorée.`);
+    }
+    variables[builtin.key] = builtin.value;
+  }
 
   if (service.type === "postgres" && database) {
     for (const key of POSTGRES_CLIENT_ONLY) delete variables[key];

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { pendingScopeKey, usePendingChanges, useVariableActions } from "../hooks/use-variable-actions";
 import { buildReferenceSuggestions, serializeEnv } from "../lib/env";
 import { ChangesBanner, VariableSuggestions } from "./editor-notices";
+import { BuiltinVariables } from "./builtin-variables";
 import { InheritedVariables } from "./inherited-variables";
 import { RawEditorDialog } from "./raw-editor-dialog";
 import { VariableForm } from "./variable-form";
@@ -262,6 +263,11 @@ function ScopedEditor({ projectId, serviceId, className, defaultFormOpen = false
       {isService ? (
         <motion.div {...LAYOUT_MOTION}>
           <InheritedVariables projectId={projectId} overriddenKeys={existingKeys} />
+        </motion.div>
+      ) : null}
+      {isService ? (
+        <motion.div {...LAYOUT_MOTION}>
+          <BuiltinVariables serviceId={serviceId} serviceName={serviceName ?? "service"} />
         </motion.div>
       ) : null}
 

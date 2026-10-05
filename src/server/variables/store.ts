@@ -10,6 +10,12 @@ import { decryptSecret, encryptSecret } from "../crypto";
 import { db, type DbClient } from "../db";
 import { notFound } from "../errors";
 import { newId } from "../ids";
+import {
+  BUILTIN_DOMAIN_SELECT,
+  BUILTIN_PROJECT_SELECT,
+  BUILTIN_SERVICE_SELECT,
+  builtinVariablesOf,
+} from "./builtin";
 
 /** Keys that usually hold credentials are sealed unless stated otherwise. */
 export function looksSecret(key: string): boolean {
@@ -123,7 +129,8 @@ export interface ResolvedEnvironment {
  * shared scope (`${{shared.KEY}}`) or any service of the project by name
  * (case-insensitive); a PostgreSQL service also exposes DATABASE_URL, PGHOST,
  * PGPORT, PGUSER, PGPASSWORD and PGDATABASE from its database record unless it
- * defines them itself. Unknown, circular or too deeply nested references become
+ * defines them itself, and every service exposes its platform variables (PORT,
+ * TWINS_*; see builtin.ts). Unknown, circular or too deeply nested references become
  * an empty string and add a warning.
  */
 export async function resolveEnvironment(
@@ -138,10 +145,25 @@ export async function resolveEnvironment(
   const projectId = service.projectId;
   const services = await client.service.findMany({
     where: { projectId },
-    select: { id: true, name: true },
+    select: BUILTIN_SERVICE_SELECT,
   });
   const rows = await client.envVariable.findMany({ where: { projectId } });
   const databases = await client.managedDatabase.findMany({ where: { projectId } });
+  const project = await client.project.findUnique({ where: { id: projectId }, select: BUILTIN_PROJECT_SELECT });
+  if (!project) throw notFound("Projet");
+  const domains = await client.domain.findMany({ where: { projectId }, select: BUILTIN_DOMAIN_SELECT });
+  const builtinCache = new Map<string, Map<string, string>>();
+  const builtinOf = (targetId: string): Map<string, string> => {
+    let map = builtinCache.get(targetId);
+    if (!map) {
+      const target = services.find((item) => item.id === targetId);
+      map = new Map(
+        target ? builtinVariablesOf(project, target, domains, null).map((item) => [item.key, item.value]) : [],
+      );
+      builtinCache.set(targetId, map);
+    }
+    return map;
+  };
 
   const byScope = new Map<string | null, Map<string, EnvVariableRow>>();
   for (const row of rows) {
@@ -175,7 +197,7 @@ export async function resolveEnvironment(
     const row = byScope.get(targetId)?.get(key);
     if (row) return { identity: identityOf(targetId, key), text: rawValue(row) };
     const database = databaseByService.get(targetId);
-    const text = database ? connectionVariables(database).get(key) : undefined;
+    const text = (database ? connectionVariables(database).get(key) : undefined) ?? builtinOf(targetId).get(key);
     return text === undefined ? null : { identity: identityOf(targetId, key), text };
   };
 

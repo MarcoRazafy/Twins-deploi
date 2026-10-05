@@ -258,6 +258,13 @@ export interface LogLine {
 // Environment variables
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** A variable the platform provides to the container (read-only, computed). */
+export interface BuiltinVariable {
+  key: string;
+  value: string;
+  description: string;
+}
+
 export interface EnvVariable {
   id: ID;
   projectId: ID;

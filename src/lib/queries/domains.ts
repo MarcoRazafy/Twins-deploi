@@ -8,7 +8,8 @@ import type { ID } from "@/lib/types";
 import { invalidateEntities, queryKeys, type DomainFilter, type QueryHookOptions } from "./keys";
 
 /** Domain counts live in the project summaries and the primary domain on the service. */
-const DOMAIN_LINKED_ENTITIES = ["domains", "projects", "services", "activity"] as const;
+// "variables": TWINS_PUBLIC_DOMAIN follows the domains of a service.
+const DOMAIN_LINKED_ENTITIES = ["domains", "projects", "services", "variables", "activity"] as const;
 
 export function useDomains(filter?: DomainFilter, options?: QueryHookOptions) {
   return useQuery({

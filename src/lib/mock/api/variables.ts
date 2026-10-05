@@ -1,5 +1,6 @@
 import type { Api } from "@/lib/api/contract";
 import type { ID, Service } from "@/lib/types";
+import { builtinVariables, pickPublicDomain } from "@/lib/variables/builtin";
 
 import { addActivity } from "../domain/activity";
 import {
@@ -12,10 +13,12 @@ import { emit } from "../emitter";
 import { invalid } from "../errors";
 import { requireProject, requireService, requireVariable } from "../lookup";
 import type { MockDb } from "../schema";
-import { iso, newestFirst } from "../text";
+import { iso, newestFirst, slugify } from "../text";
 import { read, write } from "./respond";
 
 const SHARED_SCOPE = "Variables partagées";
+
+const isLocal = (hostname: string): boolean => hostname.endsWith(".test") || hostname.endsWith(".localhost");
 
 /** Resolves and checks the (project, service) scope of a variable. */
 function resolveScope(db: MockDb, projectId: ID, serviceId: ID | null): Service | null {
@@ -53,6 +56,27 @@ export const variablesApi: Api["variables"] = {
         }),
       ),
     ),
+
+  builtins: (serviceId) =>
+    read((db) => {
+      const service = requireService(db, serviceId);
+      const project = requireProject(db, service.projectId);
+      const domains = db.domains
+        .filter((domain) => domain.serviceId === service.id)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return builtinVariables({
+        project,
+        service: {
+          id: service.id,
+          name: service.name,
+          slug: slugify(service.name),
+          port: service.config.port,
+          volume: service.volume ? { name: service.volume.name, mountPath: service.volume.mountPath } : null,
+        },
+        publicDomain: pickPublicDomain(service.primaryDomain, domains, isLocal),
+        deploymentId: null,
+      });
+    }),
 
   create: (input) =>
     write((db) => {

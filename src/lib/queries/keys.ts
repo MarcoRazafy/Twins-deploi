@@ -69,6 +69,7 @@ export const queryKeys = {
   variables: {
     all: ["variables"] as const,
     list: (filter: VariableFilter = {}) => ["variables", "list", filter] as const,
+    builtins: (serviceId: ID) => ["variables", "builtins", serviceId] as const,
   },
   domains: {
     all: ["domains"] as const,

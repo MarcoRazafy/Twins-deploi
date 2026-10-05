@@ -9,6 +9,7 @@ import { conflict, isUniqueViolation, notFound, validation } from "../errors";
 import { emit } from "../events";
 import { toEnvVariable } from "../mappers/variable";
 import { asRecord, asString, assertVariableKey } from "../rules";
+import { loadBuiltinVariables } from "../variables/builtin";
 import { createVariable, variableValue } from "../variables/store";
 
 const SHARED_SCOPE = "Variables partagées";
@@ -103,6 +104,11 @@ export function createVariablesApi(ctx: Context): Api["variables"] {
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       });
       return rows.map(toEnvVariable);
+    },
+
+    async builtins(rawServiceId) {
+      requireUser(ctx);
+      return loadBuiltinVariables(asString(rawServiceId), null);
     },
 
     async create(rawInput) {

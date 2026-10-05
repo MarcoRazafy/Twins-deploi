@@ -27,6 +27,7 @@ import type {
   ContainerAction,
   Database,
   DatabaseBackup,
+  BuiltinVariable,
   DatabaseTable,
   DatabaseTableData,
   Deployment,
@@ -377,6 +378,8 @@ export interface Api {
     delete(id: ID): Promise<void>;
     /** Upserts by key within the scope (used by the raw .env editor). */
     bulkUpsert(input: BulkUpsertVariablesInput): Promise<EnvVariable[]>;
+    /** PORT and the TWINS_* variables the platform hands to the service's container. */
+    builtins(serviceId: ID): Promise<BuiltinVariable[]>;
   };
 
   domains: {

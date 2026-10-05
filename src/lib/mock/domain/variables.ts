@@ -1,4 +1,5 @@
 import type { EnvVariable, ID, ISODate, Service } from "@/lib/types";
+import { BUILTIN_VARIABLE_PREFIX } from "@/lib/variables/builtin";
 
 import { conflict, invalid } from "../errors";
 import { newId } from "../ids";
@@ -12,6 +13,12 @@ export function assertValidKey(key: string): void {
   if (!KEY_PATTERN.test(key)) {
     throw invalid(
       `« ${key} » n’est pas un nom de variable valide : utilisez des lettres, des chiffres et « _ », sans commencer par un chiffre.`,
+      "key",
+    );
+  }
+  if (key.startsWith(BUILTIN_VARIABLE_PREFIX)) {
+    throw invalid(
+      `Les noms commençant par ${BUILTIN_VARIABLE_PREFIX} sont réservés aux variables fournies par la plateforme.`,
       "key",
     );
   }
