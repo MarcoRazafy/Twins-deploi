@@ -217,6 +217,11 @@ export async function stopContainer(name: string): Promise<void> {
   await docker(["stop", "-t", String(STOP_GRACE_SECONDS), name]);
 }
 
+/** Changes the restart policy of a running container (`docker update`). */
+export async function setRestartPolicy(name: string, policy: DockerRestartPolicy): Promise<void> {
+  await docker(["update", "--restart", policy, name]);
+}
+
 export async function restartContainer(name: string): Promise<void> {
   await docker(["restart", "-t", String(STOP_GRACE_SECONDS), name]);
 }

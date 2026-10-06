@@ -173,7 +173,7 @@ continu ; `cancelRequested` est vérifié entre les étapes et tue la commande e
 3. `docker run -d` avec : `--name mr-<slug projet>-<slug service>-<suffixe>`, `--network mr-<projectId>`,
    alias réseau `<slug>` et `<slug>.railway.internal`, `-p 127.0.0.1:<hostPort>:<port>`,
    `--env-file` (fichier 0600 supprimé après le lancement), `--memory`, `--cpus`, `--pids-limit 512`,
-   `--security-opt no-new-privileges`, `--cap-drop NET_RAW`, `--restart <politique>`,
+   `--security-opt no-new-privileges`, `--cap-drop NET_RAW`, `--restart no` (la politique du service est appliquée par `docker update` une fois le contrôle de santé passé : un plantage au démarrage est vu comme tel, avec son code de sortie),
    étiquettes `mini-railway.managed=true`, `.project`, `.service`, `.deployment`.
    Jamais de `--privileged`, de réseau hôte, de montage du socket Docker ni de montage de chemin de l'hôte.
 4. Contrôle de santé : `GET http://127.0.0.1:<hostPort><healthcheckPath>` (ou connexion TCP si

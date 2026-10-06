@@ -35,6 +35,7 @@ import {
   removeContainer,
   removeImage,
   runContainer,
+  setRestartPolicy,
   stopContainer,
   tailLogs,
   type ContainerSpec,
@@ -143,6 +144,17 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 
 function restartPolicyOf(policy: string): DockerRestartPolicy {
   return policy === "always" ? "always" : policy === "on-failure" ? "on-failure" : "no";
+}
+
+/** Healthy container: from now on Docker restarts it as the service asks. */
+async function applyRestartPolicy(state: RunState): Promise<void> {
+  const policy = restartPolicyOf(state.service.restartPolicy);
+  if (policy === "no" || state.containerName === null) return;
+  const name = state.containerName;
+  await step(state, "La politique de redémarrage n’a pas pu être appliquée au conteneur.", async () => {
+    await setRestartPolicy(name, policy);
+    state.log("info", `Restart policy set to ${policy}`);
+  });
 }
 
 /** Runs a Docker step; a Docker failure is logged (English) and becomes `message` (French). */
@@ -374,7 +386,10 @@ async function startContainer(state: RunState): Promise<{ containerId: string; h
       envFile: "",
       memoryMb: service.memoryLimitMb,
       cpus: service.cpuLimit,
-      restart: restartPolicyOf(service.restartPolicy),
+      // No automatic restart while the container is being checked: a crash at
+      // startup must be seen as such (and its exit code read), not retried by
+      // Docker in a loop. The service's policy is applied once it is healthy.
+      restart: "no",
       labels: { projectId: service.projectId, serviceId: service.id, deploymentId: deployment.id },
       volume,
     };
@@ -706,6 +721,7 @@ export async function runDeployment(deploymentId: string, options: RunDeployment
     await state.setProgress(80);
     await waitUntilHealthy(state, state.containerName ?? "", hostPort);
     await state.checkpoint();
+    await applyRestartPolicy(state);
 
     state.log("info", "Switching traffic to the new container");
     state.log("success", "Deployment successful");
