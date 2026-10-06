@@ -14,6 +14,7 @@ failures=0
 
 pass() { printf '  [ok] %s\n' "$1"; }
 fail() { printf '  [KO] %s\n' "$1"; failures=$((failures + 1)); }
+warn() { printf '  [!!] %s\n' "$1"; }
 note() { printf '  [..] %s\n' "$1"; }
 section() { printf '\n%s\n' "$1"; }
 
@@ -98,8 +99,11 @@ if [[ -f /etc/nginx/conf.d/mini-railway.conf && -d /etc/nginx/mini-railway.d ]];
 else
   fail "Configuration NGINX de Mini Railway absente"
 fi
-for helper in mini-railway-proxy mini-railway-hosts; do
-  if sudo -k -n "/usr/local/sbin/${helper}" list >/dev/null 2>&1; then
+if command -v certbot >/dev/null 2>&1; then pass "certbot installé (HTTPS automatique des domaines publics)"; else warn "certbot absent : les domaines publics resteront en HTTP (sudo apt-get install certbot)"; fi
+for helper in mini-railway-proxy mini-railway-hosts mini-railway-cert; do
+  probe=(list)
+  [[ "${helper}" == "mini-railway-cert" ]] && probe=(status --host doctor-check.example.com)
+  if sudo -k -n "/usr/local/sbin/${helper}" "${probe[@]}" >/dev/null 2>&1; then
     pass "Assistant ${helper} utilisable sans mot de passe"
   else
     fail "Assistant ${helper} indisponible (règle /etc/sudoers.d/mini-railway)"

@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""mini-railway-cert - Let's Encrypt certificates for the domains of the platform.
+
+Runs as root through sudo (see scripts/server/setup.sh); the platform process
+never touches certbot or /etc/letsencrypt itself. It only accepts data: a
+hostname, an e-mail address. Everything is validated before certbot is called.
+
+    mini-railway-cert issue --host app.example.com [--email ops@example.com]
+    mini-railway-cert status --host app.example.com
+    mini-railway-cert renew
+    mini-railway-cert remove --host app.example.com
+
+Issuance uses the HTTP-01 challenge over the webroot shared by every vhost
+mini-railway-proxy writes (location /.well-known/acme-challenge/ served from
+/var/lib/mini-railway/acme): the hostname must already resolve to this server
+and its port 80 must be reachable from the Internet.
+
+Output: one JSON object on stdout. Exit codes: 0 ok, 2 refused (bad input, local
+name, certificate missing), 3 certbot failed (details on stderr), 5 certbot is
+not installed.
+
+Testing: when NOT root, MINI_RAILWAY_TEST_ROOT=<dir> relocates /etc/letsencrypt
+and the webroot under <dir>, and MINI_RAILWAY_TEST_CERTBOT=<path> replaces the
+certbot binary. Both are ignored for uid 0, so sudo cannot be abused with them.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+
+CERTBOT = "/usr/bin/certbot"
+OPENSSL = "/usr/bin/openssl"
+NGINX = "/usr/sbin/nginx"
+SAFE_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
+MAX_HOSTNAME_LENGTH = 240
+CERTBOT_TIMEOUT = 180
+
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+HOSTNAME_RE = re.compile(rf"^(?:{_LABEL}\.)+[a-z](?:[a-z0-9-]{{0,61}}[a-z0-9])?$")
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$")
+LOCAL_SUFFIXES = (".test", ".localhost", ".local", ".internal", ".example", ".invalid")
+
+
+def fail(code, message):
+    print(f"mini-railway-cert: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def system_root():
+    override = os.environ.get("MINI_RAILWAY_TEST_ROOT")
+    if override and os.geteuid() != 0:
+        return override, True
+    if os.geteuid() != 0:
+        fail(2, "must be run as root (through sudo)")
+    return "/", False
+
+
+def certbot_binary(sandbox):
+    override = os.environ.get("MINI_RAILWAY_TEST_CERTBOT")
+    if sandbox and override:
+        return override
+    return CERTBOT
+
+
+def validate_hostname(raw):
+    hostname = raw.strip().lower()
+    if len(hostname) > MAX_HOSTNAME_LENGTH or not HOSTNAME_RE.fullmatch(hostname):
+        fail(2, f"refused hostname {raw!r}: expected a fully-qualified domain name (240 characters at most)")
+    if hostname.endswith(LOCAL_SUFFIXES):
+        fail(2, f"refused hostname {hostname!r}: a local name cannot get a public certificate")
+    return hostname
+
+
+def validate_email(raw):
+    email = raw.strip()
+    if len(email) > 254 or not EMAIL_RE.fullmatch(email):
+        fail(2, "refused e-mail address")
+    return email
+
+
+def live_dir(root, hostname):
+    return os.path.join(root, "etc/letsencrypt/live", hostname)
+
+
+def certificate_info(root, hostname):
+    """{'issuer': str, 'expiresAt': ISO date} or None when there is no certificate."""
+    path = os.path.join(live_dir(root, hostname), "fullchain.pem")
+    if not os.path.isfile(path):
+        return None
+    result = subprocess.run(
+        [OPENSSL, "x509", "-noout", "-enddate", "-issuer", "-nameopt", "RFC2253", "-in", path],
+        env=SAFE_ENV,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    expires = None
+    issuer = None
+    for line in result.stdout.splitlines():
+        if line.startswith("notAfter="):
+            raw = line[len("notAfter="):].strip()
+            try:
+                parsed = datetime.datetime.strptime(raw, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=datetime.timezone.utc)
+                expires = parsed.isoformat().replace("+00:00", "Z")
+            except ValueError:
+                expires = None
+        elif line.startswith("issuer="):
+            match = re.search(r"(?:^|,)O=([^,]+)", line[len("issuer="):])
+            issuer = match.group(1).strip() if match else line[len("issuer="):].strip()
+    return {"issuer": issuer, "expiresAt": expires}
+
+
+def run_certbot(sandbox, args):
+    binary = certbot_binary(sandbox)
+    if not os.path.isfile(binary):
+        fail(5, "certbot is not installed (apt-get install certbot)")
+    try:
+        result = subprocess.run([binary, *args], env=SAFE_ENV, capture_output=True, text=True, timeout=CERTBOT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        fail(3, "certbot did not finish in time")
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        # Keep the last lines only: certbot prints long hints.
+        tail = "\n".join(detail.splitlines()[-12:])
+        fail(3, f"certbot failed:\n{tail}")
+    return result
+
+
+def reload_nginx(sandbox):
+    if sandbox:
+        return
+    subprocess.run([NGINX, "-s", "reload"], env=SAFE_ENV, capture_output=True, text=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="mini-railway-cert", description=__doc__.split("\n\n")[0], allow_abbrev=False)
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    issue_cmd = commands.add_parser("issue", allow_abbrev=False)
+    issue_cmd.add_argument("--host", required=True)
+    issue_cmd.add_argument("--email")
+
+    status_cmd = commands.add_parser("status", allow_abbrev=False)
+    status_cmd.add_argument("--host", required=True)
+
+    commands.add_parser("renew", allow_abbrev=False)
+
+    remove_cmd = commands.add_parser("remove", allow_abbrev=False)
+    remove_cmd.add_argument("--host", required=True)
+
+    args = parser.parse_args()
+    root, sandbox = system_root()
+    webroot = os.path.join(root, "var/lib/mini-railway/acme")
+    config_dir = os.path.join(root, "etc/letsencrypt")
+
+    if args.command == "renew":
+        os.makedirs(webroot, mode=0o755, exist_ok=True)
+        run_certbot(sandbox, [
+            "renew", "--non-interactive", "--webroot", "--webroot-path", webroot,
+            "--config-dir", config_dir,
+        ])
+        reload_nginx(sandbox)
+        certificates = []
+        live = os.path.join(config_dir, "live")
+        if os.path.isdir(live):
+            for name in sorted(os.listdir(live)):
+                if not HOSTNAME_RE.fullmatch(name):
+                    continue
+                info = certificate_info(root, name)
+                if info:
+                    certificates.append({"host": name, **info})
+        print(json.dumps({"ok": True, "certificates": certificates}))
+        return
+
+    host = validate_hostname(args.host)
+
+    if args.command == "status":
+        info = certificate_info(root, host)
+        print(json.dumps({"ok": True, "host": host, "exists": info is not None, **(info or {})}))
+        return
+
+    if args.command == "remove":
+        existed = certificate_info(root, host) is not None
+        if existed:
+            run_certbot(sandbox, ["delete", "--non-interactive", "--cert-name", host, "--config-dir", config_dir])
+        print(json.dumps({"ok": True, "host": host, "changed": existed}))
+        return
+
+    # issue
+    if not os.path.isdir(webroot):
+        os.makedirs(webroot, mode=0o755, exist_ok=True)
+    certbot_args = [
+        "certonly", "--non-interactive", "--agree-tos", "--keep-until-expiring",
+        "--webroot", "--webroot-path", webroot,
+        "--config-dir", config_dir,
+        "--cert-name", host, "-d", host,
+    ]
+    if args.email:
+        certbot_args += ["--email", validate_email(args.email)]
+    else:
+        certbot_args.append("--register-unsafely-without-email")
+    run_certbot(sandbox, certbot_args)
+    info = certificate_info(root, host)
+    if info is None:
+        fail(3, "certbot reported success but no certificate was found")
+    print(json.dumps({"ok": True, "host": host, **info}))
+
+
+if __name__ == "__main__":
+    main()

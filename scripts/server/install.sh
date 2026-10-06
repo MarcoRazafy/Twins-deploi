@@ -41,6 +41,7 @@ RUNTIME_DIR="${APP_ROOT}/runtime"
 ENV_FILE="/etc/mini-railway/mini-railway.env"
 UNIT_DIR="/etc/systemd/system"
 PROXY_HELPER="/usr/local/sbin/mini-railway-proxy"
+CERT_HELPER="/usr/local/sbin/mini-railway-cert"
 MIN_NODE_MAJOR=22
 
 usage() {
@@ -258,14 +259,32 @@ systemctl is-active --quiet mini-railway-worker.service \
 
 # ─────────────────────────────── 5. NGINX ────────────────────────────────────
 step "Publication dans NGINX"
+PLATFORM_URL="http://${BASE_DOMAIN}"
 "${PROXY_HELPER}" apply --host "${BASE_DOMAIN}" --port "${WEB_PORT}" --platform --read-timeout 300 --max-body-mb 200 >/dev/null
 ok "http://${BASE_DOMAIN} -> 127.0.0.1:${WEB_PORT}"
+
+# Domaine public : certificat Let's Encrypt pour l'interface elle-même (le défi
+# HTTP-01 passe par le vhost HTTP qui vient d'être écrit).
+if [[ ! "${BASE_DOMAIN}" =~ \.(test|localhost)$ ]] && [[ -x "${CERT_HELPER}" ]] && command -v certbot >/dev/null 2>&1; then
+  ACME_EMAIL="$(sed -n 's/^MINI_RAILWAY_ACME_EMAIL=//p' "${ENV_FILE}" | tail -n 1)"
+  cert_args=(issue --host "${BASE_DOMAIN}")
+  [[ -n "${ACME_EMAIL}" ]] && cert_args+=(--email "${ACME_EMAIL}")
+  if "${CERT_HELPER}" "${cert_args[@]}" >/dev/null 2>"${TMPDIR:-/tmp}/mini-railway-cert.err"; then
+    "${PROXY_HELPER}" apply --host "${BASE_DOMAIN}" --port "${WEB_PORT}" --platform --read-timeout 300 --max-body-mb 200 --tls --force-https >/dev/null
+    PLATFORM_URL="https://${BASE_DOMAIN}"
+    ok "Certificat Let's Encrypt actif : https://${BASE_DOMAIN} (HTTP redirigé)"
+  else
+    warn "Pas de certificat pour ${BASE_DOMAIN} (l'interface reste en HTTP) : $(tail -n 3 "${TMPDIR:-/tmp}/mini-railway-cert.err" | tr '\n' ' ')"
+    warn "Vérifiez que ${BASE_DOMAIN} pointe vers l'adresse IP publique de ce serveur et que le port 80 est joignable depuis Internet, puis relancez ce script."
+  fi
+  rm -f "${TMPDIR:-/tmp}/mini-railway-cert.err"
+fi
 
 cat <<EOF
 
 Installation terminée.
 
-  Interface      http://${BASE_DOMAIN}
+  Interface      ${PLATFORM_URL}
   Code           ${APP_DIR}$([[ ${units_exist} -eq 1 ]] && printf ' (mis à jour)')
   Journaux       journalctl -u mini-railway-web -f
                  journalctl -u mini-railway-worker -f

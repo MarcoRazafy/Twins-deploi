@@ -26,6 +26,14 @@ npm run dev        # http://localhost:3000 (ou le port libre suivant)
 | `npm test` | Toute la suite vitest (unitaires, API, pipeline Docker) |
 | `npm run test:all` | Idem, en préparant d'abord la base de test (`scripts/test/run-all.sh`) |
 
+## HTTPS
+
+Les domaines publics reçoivent automatiquement un certificat Let's Encrypt (assistant
+`scripts/server/bin/mini-railway-cert`, défi HTTP-01, renouvellement par le worker). Il faut que le
+nom pointe vers l'adresse IP publique du serveur et que le port 80 soit joignable depuis Internet.
+`scripts/server/setup.sh --acme-email vous@exemple.com` installe certbot et enregistre l'adresse de
+contact ; `install.sh` met aussi l'interface en HTTPS quand le domaine de base est public.
+
 ## Tests
 
 Trois projets vitest (`vitest.config.mts`), lancés ensemble par `npm test` ou un par un :

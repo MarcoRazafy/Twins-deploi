@@ -16,6 +16,8 @@ import { scheduleAutomaticBackups } from "../server/backups/schedule";
 import { db } from "../server/db";
 import { claimNextDeployment, runDeployment } from "../server/deploy/pipeline";
 import { recoverInterruptedDeployments } from "../server/deploy/recovery";
+import { refreshCertificateDates } from "../server/domains/publish";
+import { renewCertificates } from "../server/domains/tls";
 import { isDockerAvailable } from "../server/docker";
 import { env } from "../server/env";
 import { DOCKER_FREE_JOB_TYPES, JobRetry, runJob } from "../server/jobs/handlers";
@@ -248,6 +250,16 @@ const scheduled = [
   periodic("backups", HOUR_MS, 45_000, async () => {
     const file = await backupPlatformDatabase();
     if (file !== null) log("backups", `platform database dumped to ${file}`);
+  }),
+  periodic("certificates", 12 * HOUR_MS, 5 * 60_000, async () => {
+    if (env.certHelper === null) return;
+    const renewed = await renewCertificates();
+    if (!renewed.ok) {
+      if (renewed.reason !== "not_configured") log("certificates", `renewal failed: ${renewed.message}`);
+      return;
+    }
+    const changed = await refreshCertificateDates(renewed.value);
+    log("certificates", `${renewed.value.length} certificate(s) checked, ${changed} domain row(s) updated`);
   }),
   periodic("prune", DAY_MS, DAY_MS, async () => {
     if (!(await getPlatformSettings()).docker.autoPrune) return;

@@ -73,6 +73,14 @@ export const env = {
   get hostsHelper(): string | null {
     return optional("MINI_RAILWAY_HOSTS_HELPER");
   },
+  /** Let's Encrypt helper (scripts/server/bin/mini-railway-cert); null = no HTTPS. */
+  get certHelper(): string | null {
+    return optional("MINI_RAILWAY_CERT_HELPER");
+  },
+  /** Contact e-mail given to Let's Encrypt (expiry notices). Optional. */
+  get acmeEmail(): string | null {
+    return optional("MINI_RAILWAY_ACME_EMAIL");
+  },
   /** Optional: the assistant answers “not configured” without it. Never log or return it. */
   get mistralApiKey(): string | null {
     return optional("MISTRAL_API_KEY");

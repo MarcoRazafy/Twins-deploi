@@ -19,7 +19,7 @@
 #                    conteneurs PostgreSQL créés par la plateforme elle-même.
 #   4. Secrets     : /etc/mini-railway/mini-railway.env (URL de la base, clé de
 #                    chiffrement), lisible uniquement par l'utilisateur de la plateforme.
-#   5. Assistants  : /usr/local/sbin/mini-railway-proxy et mini-railway-hosts, les
+#   5. Assistants  : /usr/local/sbin/mini-railway-proxy, mini-railway-hosts et mini-railway-cert, les
 #                    deux seules commandes que la plateforme peut lancer en root
 #                    (règle /etc/sudoers.d/mini-railway). Ils n'acceptent que des
 #                    données validées (nom d'hôte, port local), jamais de configuration.
@@ -47,6 +47,8 @@ trap 'die "Échec à la ligne ${LINENO} : ${BASH_COMMAND}"' ERR
 # ─────────────────────────────── paramètres ──────────────────────────────────
 MR_USER="${SUDO_USER:-}"
 BASE_DOMAIN="mini-railway.test"
+ACME_EMAIL=""
+ACME_DIR="/var/lib/mini-railway/acme"
 DATA_DIR="/var/lib/mini-railway"
 LOG_DIR="/var/log/mini-railway"
 ETC_DIR="/etc/mini-railway"
@@ -69,6 +71,7 @@ Mini Railway - préparation du serveur (Linux Mint / Ubuntu).
 Options
   --user NOM            Compte Linux qui exécute la plateforme (défaut : l'utilisateur sudo)
   --base-domain DOMAINE Domaine de base des applications (défaut : mini-railway.test)
+  --acme-email EMAIL    Adresse donnée à Let's Encrypt (avis d'expiration). Optionnel.
   -h, --help            Affiche cette aide
 EOF
 }
@@ -77,6 +80,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --user)        [[ $# -ge 2 ]] || die "--user attend une valeur"; MR_USER="$2"; shift 2 ;;
     --base-domain) [[ $# -ge 2 ]] || die "--base-domain attend une valeur"; BASE_DOMAIN="$2"; shift 2 ;;
+    --acme-email)  [[ $# -ge 2 ]] || die "--acme-email attend une valeur"; ACME_EMAIL="$2"; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
     *)             die "Option inconnue : $1 (voir --help)" ;;
   esac
@@ -96,9 +100,12 @@ BASE_DOMAIN="${BASE_DOMAIN,,}"
   || die "Domaine de base invalide : ${BASE_DOMAIN}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for helper in mini-railway-proxy mini-railway-hosts; do
+for helper in mini-railway-proxy mini-railway-hosts mini-railway-cert; do
   [[ -f "${SCRIPT_DIR}/bin/${helper}" ]] || die "Fichier manquant : ${SCRIPT_DIR}/bin/${helper}"
 done
+if [[ -n "${ACME_EMAIL}" ]]; then
+  [[ "${ACME_EMAIL}" =~ ^[A-Za-z0-9._%+-]{1,64}@([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$ ]] || die "Adresse e-mail invalide : ${ACME_EMAIL}"
+fi
 
 for cmd in docker psql pg_lsclusters pg_isready nginx python3 visudo runuser openssl systemctl install; do
   command -v "${cmd}" >/dev/null 2>&1 || die "Commande introuvable : ${cmd}. Installez d'abord Docker, PostgreSQL et NGINX."
@@ -279,6 +286,8 @@ env_set MINI_RAILWAY_LOG_DIR "${LOG_DIR}"
 env_set MINI_RAILWAY_BASE_DOMAIN "${BASE_DOMAIN}"
 env_set MINI_RAILWAY_PROXY_HELPER "${SBIN_DIR}/mini-railway-proxy"
 env_set MINI_RAILWAY_HOSTS_HELPER "${SBIN_DIR}/mini-railway-hosts"
+env_set MINI_RAILWAY_CERT_HELPER "${SBIN_DIR}/mini-railway-cert"
+[[ -n "${ACME_EMAIL}" ]] && env_set MINI_RAILWAY_ACME_EMAIL "${ACME_EMAIL}"
 ok "${ENV_FILE} (lisible par ${MR_USER} uniquement)"
 
 # Noms que seule la plateforme peut publier (voir mini-railway-proxy --platform).
@@ -290,13 +299,14 @@ mv -f "${RESERVED_HOSTS_FILE}.tmp" "${RESERVED_HOSTS_FILE}"
 step "Assistants privilégiés"
 install -o root -g root -m 755 "${SCRIPT_DIR}/bin/mini-railway-proxy" "${SBIN_DIR}/mini-railway-proxy"
 install -o root -g root -m 755 "${SCRIPT_DIR}/bin/mini-railway-hosts" "${SBIN_DIR}/mini-railway-hosts"
-ok "${SBIN_DIR}/mini-railway-proxy et mini-railway-hosts"
+install -o root -g root -m 755 "${SCRIPT_DIR}/bin/mini-railway-cert" "${SBIN_DIR}/mini-railway-cert"
+ok "${SBIN_DIR}/mini-railway-proxy, mini-railway-hosts et mini-railway-cert"
 
 sudoers_tmp="$(mktemp)"
 cat > "${sudoers_tmp}" <<EOF
 # Mini Railway - géré par scripts/server/setup.sh
-# Les deux seules commandes que la plateforme peut exécuter en root.
-${MR_USER} ALL=(root) NOPASSWD: ${SBIN_DIR}/mini-railway-proxy, ${SBIN_DIR}/mini-railway-hosts
+# Les trois seules commandes que la plateforme peut exécuter en root.
+${MR_USER} ALL=(root) NOPASSWD: ${SBIN_DIR}/mini-railway-proxy, ${SBIN_DIR}/mini-railway-hosts, ${SBIN_DIR}/mini-railway-cert
 EOF
 if visudo -cf "${sudoers_tmp}" >/dev/null 2>&1; then
   install -o root -g root -m 440 "${sudoers_tmp}" "${SUDOERS_FILE}"
@@ -315,6 +325,26 @@ if [[ "${BASE_DOMAIN}" =~ \.(test|localhost)$ ]]; then
 else
   info "${BASE_DOMAIN} est un domaine public : créez ses enregistrements DNS chez votre registrar"
 fi
+
+# ─────────────────────────────── 6 bis. HTTPS (Let's Encrypt) ────────────────
+step "HTTPS (Let's Encrypt)"
+# Dossier du défi HTTP-01, servi par chaque vhost sous /.well-known/acme-challenge/.
+install -d -o root -g root -m 755 "${ACME_DIR}"
+if command -v certbot >/dev/null 2>&1; then
+  ok "certbot présent ($(certbot --version 2>/dev/null | head -n 1 || echo 'version inconnue'))"
+elif command -v apt-get >/dev/null 2>&1; then
+  info "Installation de certbot (apt-get)…"
+  if DEBIAN_FRONTEND=noninteractive apt-get install -y -q certbot >/dev/null 2>&1; then
+    ok "certbot installé"
+  else
+    warn "certbot n'a pas pu être installé (pas de réseau ?) : les domaines publics resteront en HTTP. Installez-le plus tard : sudo apt-get install certbot"
+  fi
+else
+  warn "certbot introuvable et apt-get absent : les domaines publics resteront en HTTP"
+fi
+# Le renouvellement est fait par le worker de la plateforme (mini-railway-cert renew, deux fois par jour) :
+# le timer de certbot ferait doublon et ne rechargerait pas NGINX.
+systemctl disable --now certbot.timer >/dev/null 2>&1 || true
 
 # ─────────────────────────────── 7. NGINX ────────────────────────────────────
 # En dernier : un problème NGINX (port 80 occupé…) ne bloque pas le reste.

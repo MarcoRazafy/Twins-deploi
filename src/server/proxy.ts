@@ -36,6 +36,10 @@ export interface PublishHostOptions {
   readTimeoutSec?: number;
   /** Default: platform setting nginx.gzip. */
   gzip?: boolean;
+  /** Serve HTTPS with the Let's Encrypt certificate of the host (must exist). */
+  tls?: boolean;
+  /** With `tls`: answer HTTP with a redirect to HTTPS. */
+  forceHttps?: boolean;
 }
 
 export const APP_PORT_RANGE = { min: 20_000, max: 29_999 } as const;
@@ -165,6 +169,8 @@ export async function publishHost(options: PublishHostOptions): Promise<ProxyRes
       "--read-timeout",
       String(tuning.readTimeoutSec),
       ...(tuning.gzip ? ["--gzip"] : []),
+      ...(options.tls ? ["--tls"] : []),
+      ...(options.tls && options.forceHttps ? ["--force-https"] : []),
     ],
     "L’assistant du proxy",
     [2, 3],

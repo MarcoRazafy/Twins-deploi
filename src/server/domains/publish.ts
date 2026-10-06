@@ -14,10 +14,14 @@
 
 import type { Domain as DomainRow, Prisma } from "@/generated/prisma/client";
 
+import { recordActivity } from "../activity";
 import { db, type DbClient } from "../db";
 import { emit } from "../events";
+import type { JobPayloads } from "../jobs/queue";
+import { enqueueJob } from "../jobs/queue";
 import { getPlatformSettings } from "../platform-settings";
 import { isLocalHostname, publishHost, unpublishHost } from "../proxy";
+import { certificateStatus, certificateUsable, issueCertificate, tlsEligible, type CertificateInfo } from "./tls";
 
 /** True for a domain the proxy may serve: generated, local, or a public one whose DNS was verified. */
 export function isPublishable(domain: Pick<DomainRow, "kind" | "hostname" | "verifiedAt">): boolean {
@@ -64,15 +68,27 @@ export function updateDomainState(
   });
 }
 
+export interface PublishDomainOptions {
+  /**
+   * Ask Let's Encrypt again for a domain whose last issuance failed. Set by the
+   * user's "verify" action; deployments do not retry on their own, so a domain
+   * that cannot be reached from the Internet does not hit the issuance limits.
+   */
+  retryCertificate?: boolean;
+}
+
 /**
  * Publishes one domain.
  * - service without a running container (no host port): the domain waits in "verifying";
  * - otherwise the proxy entry is applied: "active" on success, "error" with the
- *   helper's message on failure (also when the helpers are not installed).
+ *   helper's message on failure (also when the helpers are not installed);
+ * - public domain on a machine with the certificate helper: served with TLS when
+ *   its certificate exists, else "issuing_certificate" while the job
+ *   `domain.certificate` obtains one (HTTP keeps working meanwhile).
  * A public domain whose DNS is not verified yet is never published.
  * Never throws for helper failures; resolves with the new row (null when the domain is gone).
  */
-export async function publishDomain(domainId: string): Promise<DomainRow | null> {
+export async function publishDomain(domainId: string, options: PublishDomainOptions = {}): Promise<DomainRow | null> {
   const domain = await db().domain.findUnique({
     where: { id: domainId },
     include: { service: { select: { hostPort: true, port: true } } },
@@ -99,25 +115,156 @@ export async function publishDomain(domainId: string): Promise<DomainRow | null>
   }
 
   const settings = await getPlatformSettings();
-  const result = await publishHost({
+  const base = {
     hostname: domain.hostname,
     port: hostPort,
     maxBodyMb: settings.nginx.clientMaxBodySizeMb,
     readTimeoutSec: settings.nginx.proxyReadTimeoutSec,
     gzip: settings.nginx.gzip,
-  });
+  };
+
+  if (!tlsEligible(domain.hostname)) {
+    const result = await publishHost(base);
+    if (!result.ok) {
+      return updateDomainState(domainId, { status: "error", error: result.message, lastCheckedAt: now });
+    }
+    return updateDomainState(domainId, {
+      status: "active",
+      error: null,
+      verifiedAt: domain.verifiedAt ?? now,
+      lastCheckedAt: now,
+      sslStatus: "none",
+      sslIssuer: null,
+      sslExpiresAt: null,
+    });
+  }
+
+  // With a usable certificate: straight to HTTPS.
+  const status = await certificateStatus(domain.hostname);
+  const certificate = status.ok && certificateUsable(status.value) ? status.value : null;
+  if (certificate) {
+    const result = await publishHost({ ...base, tls: true, forceHttps: domain.forceHttps });
+    if (!result.ok) {
+      return updateDomainState(domainId, { status: "error", error: result.message, lastCheckedAt: now });
+    }
+    return updateDomainState(domainId, {
+      status: "active",
+      error: null,
+      verifiedAt: domain.verifiedAt ?? now,
+      lastCheckedAt: now,
+      ...issuedFields(certificate),
+    });
+  }
+
+  // No certificate yet: HTTP now, HTTPS as soon as the job gets one.
+  const result = await publishHost(base);
   if (!result.ok) {
     return updateDomainState(domainId, { status: "error", error: result.message, lastCheckedAt: now });
   }
+  const failedBefore = domain.sslStatus === "error";
+  if (failedBefore && !options.retryCertificate) {
+    return updateDomainState(domainId, {
+      status: "active",
+      verifiedAt: domain.verifiedAt ?? now,
+      lastCheckedAt: now,
+    });
+  }
+  await enqueueJob(db(), "domain.certificate", { domainId });
   return updateDomainState(domainId, {
-    status: "active",
+    status: "issuing_certificate",
     error: null,
     verifiedAt: domain.verifiedAt ?? now,
     lastCheckedAt: now,
-    sslStatus: "none",
+    sslStatus: "pending",
     sslIssuer: null,
     sslExpiresAt: null,
   });
+}
+
+function issuedFields(certificate: CertificateInfo) {
+  return { sslStatus: "issued", sslIssuer: certificate.issuer, sslExpiresAt: certificate.expiresAt } as const;
+}
+
+/**
+ * Job `domain.certificate`: asks Let's Encrypt for the certificate of a domain
+ * published over HTTP, then rewrites its vhost with TLS. On failure the domain
+ * stays active over HTTP with `ssl.status = "error"` and the reason.
+ */
+export async function handleDomainCertificate(payload: JobPayloads["domain.certificate"]): Promise<void> {
+  if (typeof payload.domainId !== "string") return;
+  const domain = await db().domain.findUnique({
+    where: { id: payload.domainId },
+    include: { service: { select: { name: true, hostPort: true, port: true } } },
+  });
+  if (!domain || !isPublishable(domain) || !tlsEligible(domain.hostname)) return;
+  if (domain.service.hostPort === null || domain.targetPort !== domain.service.port) return;
+  const now = new Date();
+
+  const issued = await issueCertificate(domain.hostname);
+  if (!issued.ok) {
+    await updateDomainState(domain.id, {
+      status: "active",
+      sslStatus: "error",
+      sslIssuer: null,
+      sslExpiresAt: null,
+      error: `HTTPS indisponible, le site reste servi en HTTP. ${issued.message}`,
+      lastCheckedAt: now,
+    });
+    return;
+  }
+
+  const settings = await getPlatformSettings();
+  const result = await publishHost({
+    hostname: domain.hostname,
+    port: domain.service.hostPort,
+    maxBodyMb: settings.nginx.clientMaxBodySizeMb,
+    readTimeoutSec: settings.nginx.proxyReadTimeoutSec,
+    gzip: settings.nginx.gzip,
+    tls: true,
+    forceHttps: domain.forceHttps,
+  });
+  if (!result.ok) {
+    await updateDomainState(domain.id, {
+      status: "active",
+      sslStatus: "error",
+      sslIssuer: issued.value.issuer,
+      sslExpiresAt: issued.value.expiresAt,
+      error: `Certificat obtenu mais NGINX n’a pas pu l’activer. ${result.message}`,
+      lastCheckedAt: now,
+    });
+    return;
+  }
+  await updateDomainState(domain.id, {
+    status: "active",
+    error: null,
+    lastCheckedAt: now,
+    ...issuedFields(issued.value),
+  });
+  await recordActivity({
+    type: "domain.certificate",
+    severity: "success",
+    title: "Certificat HTTPS émis",
+    description: `${domain.hostname} · ${domain.service.name}`,
+    projectId: domain.projectId,
+    serviceId: domain.serviceId,
+    notify: true,
+  });
+}
+
+/** After `certbot renew`: the rows follow the certificates actually installed. */
+export async function refreshCertificateDates(
+  certificates: readonly { host: string; issuer: string | null; expiresAt: Date | null }[],
+): Promise<number> {
+  let changed = 0;
+  for (const certificate of certificates) {
+    const { count } = await db().domain.updateMany({
+      where: { hostname: certificate.host, sslStatus: "issued", NOT: { sslExpiresAt: certificate.expiresAt } },
+      data: { sslIssuer: certificate.issuer, sslExpiresAt: certificate.expiresAt },
+    });
+    changed += count;
+  }
+  if (changed > 0) await emit(["domains"]);
+  return changed;
 }
 
 /** Re-publishes every publishable domain of a service (after a deployment). Resolves with the new rows. */

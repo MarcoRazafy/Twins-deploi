@@ -621,6 +621,7 @@ export type ActivityType =
   | "variable.updated"
   | "domain.added"
   | "domain.verified"
+  | "domain.certificate"
   | "domain.removed"
   | "database.created"
   | "backup.completed"

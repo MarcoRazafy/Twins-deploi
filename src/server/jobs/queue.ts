@@ -21,6 +21,7 @@ export const JOB_TYPES = [
   "cleanup.service",
   "cleanup.project",
   "domain.verify",
+  "domain.certificate",
   "backup.create",
   "backup.restore",
   "image.prune",
@@ -58,6 +59,7 @@ export interface JobPayloads {
   /** The Docker network `mr-<projectId>`; runs after the cleanup.service jobs of the same deletion. */
   "cleanup.project": { projectId: string; network: string };
   "domain.verify": { domainId: string };
+  "domain.certificate": { domainId: string };
   "backup.create": { databaseId: string; backupId: string };
   "backup.restore": { databaseId: string; backupId: string };
   "image.prune": Record<string, never>;

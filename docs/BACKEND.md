@@ -71,6 +71,7 @@ processus, `.env.local`, `.env`, puis `/etc/mini-railway/mini-railway.env` (écr
 | Variable | Rôle |
 | --- | --- |
 | `DATABASE_URL`, `SHADOW_DATABASE_URL` | Base interne et base « shadow » des migrations |
+| `MINI_RAILWAY_CERT_HELPER`, `MINI_RAILWAY_ACME_EMAIL` | Assistant Let's Encrypt (HTTPS automatique) et e-mail de contact optionnel |
 | `MINI_RAILWAY_SECRET_KEY` | 32 octets en hexadécimal : clé de chiffrement des secrets |
 | `MINI_RAILWAY_DATA_DIR` | Dépôts clonés, contextes de build, sauvegardes (`/var/lib/mini-railway`) |
 | `MINI_RAILWAY_BASE_DOMAIN` | Domaine de base des domaines générés (`mini-railway.test`) |
@@ -207,7 +208,18 @@ le Dockerfile du dépôt est obligatoire.
 - Domaines locaux (`.test`, `.localhost`) : `sudo -n mini-railway-hosts add <hôte>` puis proxy,
   actifs immédiatement (pas de TLS en local).
 - Domaines publics : enregistrements DNS affichés à l'utilisateur, vérification réelle par
-  résolution DNS (`dns.resolve`), puis proxy. Le TLS (certbot) arrive avec le domaine public.
+  résolution DNS (`dns.resolve`), puis proxy.
+- HTTPS automatique (`src/server/domains/tls.ts`, assistant `mini-railway-cert`) : une fois un
+  domaine public servi en HTTP, le job `domain.certificate` demande un certificat Let's Encrypt
+  (défi HTTP-01 : chaque vhost sert `/.well-known/acme-challenge/` depuis `/var/lib/mini-railway/acme`),
+  puis réécrit le vhost avec `--tls` (et `--force-https` selon le domaine). Statuts :
+  `issuing_certificate` / `ssl.status = pending` pendant la demande, `active` + `issued` ensuite,
+  `active` + `ssl.status = error` si Let's Encrypt refuse (le site reste en HTTP, le message explique
+  pourquoi ; « Vérifier » relance la demande, un déploiement ne la relance pas). Le worker lance
+  `mini-railway-cert renew` toutes les 12 h et met à jour les dates d'expiration. Sans l'assistant
+  (`MINI_RAILWAY_CERT_HELPER` absent) ou pour un nom local, rien ne change : HTTP seulement.
+  `MINI_RAILWAY_ACME_EMAIL` (optionnel) est transmis à Let's Encrypt. L'interface elle-même reçoit son
+  certificat dans `install.sh` quand le domaine de base est public.
 - Domaine généré : `<service>-<projet>-<4 hex>.<MINI_RAILWAY_BASE_DOMAIN>`.
 
 ## 10. Bases PostgreSQL des projets

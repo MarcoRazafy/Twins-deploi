@@ -5,6 +5,7 @@
  */
 
 import { pruneImages } from "../../docker";
+import { handleDomainCertificate } from "../../domains/publish";
 import { handleDomainVerify } from "../../domains/verify";
 import { emit } from "../../events";
 import type { ClaimedJob, JobType } from "../queue";
@@ -16,7 +17,7 @@ import { handleServiceAction } from "./service-action";
 export { JobRetry };
 
 /** Jobs that need no Docker: they keep running while Docker is not reachable. */
-export const DOCKER_FREE_JOB_TYPES: readonly JobType[] = ["domain.verify"];
+export const DOCKER_FREE_JOB_TYPES: readonly JobType[] = ["domain.verify", "domain.certificate"];
 
 async function handleImagePrune(): Promise<void> {
   const result = await pruneImages();
@@ -33,6 +34,8 @@ export async function runJob(job: ClaimedJob): Promise<void> {
       return handleCleanupProject(job.payload);
     case "domain.verify":
       return handleDomainVerify(job.payload);
+    case "domain.certificate":
+      return handleDomainCertificate(job.payload);
     case "backup.create":
       return handleBackupCreate(job.payload);
     case "backup.restore":

@@ -6,6 +6,7 @@ import { recordActivity } from "../activity";
 import { requireUser, type Context } from "../context";
 import { db, type DbClient } from "../db";
 import { publishDomain, isPublishable, syncPrimaryDomain } from "../domains/publish";
+import { removeCertificate, tlsEligible } from "../domains/tls";
 import { dnsRecordsFor } from "../domains/records";
 import { env } from "../env";
 import { conflict, isUniqueViolation, notFound, validation } from "../errors";
@@ -220,7 +221,7 @@ export function createDomainsApi(ctx: Context): Api["domains"] {
 
       // Nothing to look up in DNS: verifying means publishing again.
       if (domain.kind === "generated" || isLocalHostname(domain.hostname)) {
-        const published = await publishDomain(id);
+        const published = await publishDomain(id, { retryCertificate: true });
         if (!published) throw notFound("Domaine");
         return toDomain(published);
       }
@@ -258,6 +259,12 @@ export function createDomainsApi(ctx: Context): Api["domains"] {
       const unpublished = await unpublishHost(domain.hostname);
       if (!unpublished.ok && unpublished.reason !== "not_configured") {
         console.error(`[domains] could not unpublish ${domain.hostname}: ${unpublished.message}`);
+      }
+      if (tlsEligible(domain.hostname)) {
+        const removed = await removeCertificate(domain.hostname);
+        if (!removed.ok && removed.reason !== "not_configured") {
+          console.error(`[domains] could not remove the certificate of ${domain.hostname}: ${removed.message}`);
+        }
       }
 
       await db().$transaction(async (tx) => {

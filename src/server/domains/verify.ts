@@ -98,7 +98,7 @@ export async function handleDomainVerify(payload: JobPayloads["domain.verify"]):
 
   // Local and generated names need no DNS: verifying them just publishes them again.
   if (domain.kind === "generated" || isLocalHostname(domain.hostname)) {
-    await publishDomain(domain.id);
+    await publishDomain(domain.id, { retryCertificate: true });
     return;
   }
 
@@ -129,5 +129,5 @@ export async function handleDomainVerify(payload: JobPayloads["domain.verify"]):
       notify: true,
     });
   }
-  await publishDomain(domain.id);
+  await publishDomain(domain.id, { retryCertificate: true });
 }
