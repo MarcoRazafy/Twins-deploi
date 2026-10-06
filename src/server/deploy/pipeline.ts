@@ -249,7 +249,9 @@ async function probeHttp(port: number, path: string): Promise<boolean> {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     await response.body?.cancel().catch(() => {});
-    return response.status < 500;
+    // A 4xx means the path is not served (404) or refused: not healthy. A
+    // redirect is not followed (manual) and counts as an answer of the route.
+    return response.status >= 200 && response.status < 400;
   } catch {
     return false;
   }
@@ -315,8 +317,15 @@ async function waitUntilHealthy(state: RunState, containerName: string, hostPort
     if (Date.now() >= deadline) {
       state.log("error", `Health check did not pass within ${HEALTH_TIMEOUT_MS / 1000}s`);
       await captureContainerLogs(state, containerName);
+      const path = service.healthcheckPath.trim();
+      const detail =
+        service.type === "postgres"
+          ? `PostgreSQL n’est pas prêt sur le port ${service.port}.`
+          : path !== ""
+            ? `GET ${path} sur le port ${service.port} ne renvoie pas de réponse 2xx ou 3xx (service injoignable, ou chemin inexistant).`
+            : `le service n’accepte pas de connexion sur le port ${service.port}.`;
       throw new DeployFailure(
-        `Le contrôle de santé n’a pas abouti en ${HEALTH_TIMEOUT_MS / 1000} secondes : le service ne répond pas sur le port ${service.port}.`,
+        `Le contrôle de santé n’a pas abouti en ${HEALTH_TIMEOUT_MS / 1000} secondes : ${detail}`,
       );
     }
     await sleep(HEALTH_INTERVAL_MS, state.signal);

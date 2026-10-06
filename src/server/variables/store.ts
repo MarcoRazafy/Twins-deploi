@@ -5,6 +5,7 @@
  */
 
 import type { EnvVariable as EnvVariableRow, ManagedDatabase } from "@/generated/prisma/client";
+import { isBuiltinVariableKey } from "@/lib/variables/builtin";
 
 import { decryptSecret, encryptSecret } from "../crypto";
 import { db, type DbClient } from "../db";
@@ -130,7 +131,8 @@ export interface ResolvedEnvironment {
  * (case-insensitive); a PostgreSQL service also exposes DATABASE_URL, PGHOST,
  * PGPORT, PGUSER, PGPASSWORD and PGDATABASE from its database record unless it
  * defines them itself, and every service exposes its platform variables (PORT,
- * TWINS_*; see builtin.ts). Unknown, circular or too deeply nested references become
+ * TWINS_*; see builtin.ts), which win over a variable of the same name as they
+ * do in the container. Unknown, circular or too deeply nested references become
  * an empty string and add a warning.
  */
 export async function resolveEnvironment(
@@ -194,6 +196,10 @@ export async function resolveEnvironment(
     }
     const targetId = serviceByName.get(scope.trim().toLowerCase());
     if (targetId === undefined) return null;
+    // The container gets the platform value even over a variable of the same
+    // name (see deploy/env-file.ts): a reference must see the same value.
+    const builtin = isBuiltinVariableKey(key) ? builtinOf(targetId).get(key) : undefined;
+    if (builtin !== undefined) return { identity: identityOf(targetId, key), text: builtin };
     const row = byScope.get(targetId)?.get(key);
     if (row) return { identity: identityOf(targetId, key), text: rawValue(row) };
     const database = databaseByService.get(targetId);

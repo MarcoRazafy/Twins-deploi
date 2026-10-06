@@ -236,4 +236,17 @@ npm run db:migrate        # applique les migrations (prisma migrate deploy)
 npm run db:migrate:dev    # crée une migration en développement
 npm run worker            # lance le worker
 npm run dev               # interface + API (lancer le worker dans un second terminal)
+npm test                  # tests unitaires + API + pipeline (voir README, section Tests)
+npm run test:all          # idem après préparation de la base mini_railway_test
 ```
+
+## 13. Tests
+
+- `tests/unit` : fonctions pures, sans base ni Docker.
+- `tests/api` : `createServerApi(ctx)` appelé en direct sur la base `mini_railway_test`
+  (`tests/helpers/setup-env.ts` force `DATABASE_URL`, une clé de chiffrement de test, un
+  répertoire de données temporaire et retire les helpers privilégiés : les domaines sont
+  enregistrés mais pas publiés). `resetDatabase()` vide les tables avant chaque test.
+- `tests/pipeline` : `runDeployment` avec le vrai Docker, images publiques minuscules, projets
+  préfixés `pipetest`, nettoyage par labels `projectId`/`serviceId` même en cas d'échec.
+- Intégration continue : `.github/workflows/ci.yml` (PostgreSQL 16 en service, Node 24).

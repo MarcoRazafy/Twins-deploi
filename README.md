@@ -23,6 +23,24 @@ npm run dev        # http://localhost:3000 (ou le port libre suivant)
 | `npm run typecheck` | `next typegen` + `tsc --noEmit` |
 | `npm run lint` | ESLint (règles React 19 incluses) |
 | `npm run qa:shot -- --url /dashboard --out /tmp/dashboard.png` | Capture d'écran + erreurs console via le Chrome du système |
+| `npm test` | Toute la suite vitest (unitaires, API, pipeline Docker) |
+| `npm run test:all` | Idem, en préparant d'abord la base de test (`scripts/test/run-all.sh`) |
+
+## Tests
+
+Trois projets vitest (`vitest.config.mts`), lancés ensemble par `npm test` ou un par un :
+
+| Commande | Contenu | Besoin |
+| --- | --- | --- |
+| `npm run test:unit` | fonctions pures (règles, variables, chiffrement, simulateur navigateur) | rien |
+| `npm run test:api` | l'API serveur appelée en direct, chaque test sur base vide | PostgreSQL : base `mini_railway_test` |
+| `npm run test:pipeline` | de vrais déploiements (image, conteneur, redéploiement, échec, nettoyage) | Docker |
+
+`bash scripts/test/run-all.sh` crée la base de test si elle manque, applique les migrations puis
+lance tout (`--no-pipeline` pour sauter Docker). La base de test est déduite du `DATABASE_URL`
+de `.env.local` ou `/etc/mini-railway/mini-railway.env` (nom remplacé par `mini_railway_test`),
+ou fixée par `TEST_DATABASE_URL` ; son nom doit finir par `_test` car chaque test vide les tables.
+`.github/workflows/ci.yml` rejoue lint, types, tests unitaires et API à chaque push, puis le pipeline.
 
 ## Stack
 
