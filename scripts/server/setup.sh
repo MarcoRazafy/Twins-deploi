@@ -187,7 +187,10 @@ step "Répertoires"
 for dir in "${DATA_DIR}" "${LOG_DIR}" "${ETC_DIR}"; do
   [[ ! -L "${dir}" ]] || die "${dir} est un lien symbolique : remplacez-le par un vrai répertoire"
 done
-install -d -o "${MR_USER}" -g "${MR_GROUP}" -m 750 "${DATA_DIR}" "${LOG_DIR}"
+# 751 et non 750 : NGINX doit pouvoir traverser le répertoire de données pour servir
+# le défi HTTP-01 (acme/), sans en lister le contenu. Les sous-répertoires restent en 750.
+install -d -o "${MR_USER}" -g "${MR_GROUP}" -m 751 "${DATA_DIR}"
+install -d -o "${MR_USER}" -g "${MR_GROUP}" -m 750 "${LOG_DIR}"
 runuser -u "${MR_USER}" -- install -d -m 750 \
   "${DATA_DIR}/repos" "${DATA_DIR}/builds" "${DATA_DIR}/tmp" \
   "${DATA_DIR}/backups" "${DATA_DIR}/backups/platform" "${DATA_DIR}/backups/databases"
