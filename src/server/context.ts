@@ -55,11 +55,15 @@ const OWN_ACCOUNT_METHODS = new Set([
   "settings.revokeToken",
 ]);
 
+/** The server console is a shell on the host: its switch belongs to the owner alone. */
+const OWNER_METHODS = new Set(["settings.getServerConsole", "settings.setServerConsole"]);
+
 /**
  * Minimum role for an RPC method ("<namespace>.<method>"); null = public.
  * - auth.*                          → public
  * - list*, get*, search*            → viewer
  * - settings.* writes (incl. members) → admin, except the caller's own profile and tokens
+ * - the server console switch       → owner
  * - every other write               → developer
  */
 const SENSITIVE_READ_NAMESPACES = new Set(["databases", "variables"]);
@@ -67,6 +71,7 @@ const SENSITIVE_READ_NAMESPACES = new Set(["databases", "variables"]);
 export function minimumRole(method: string): MemberRole | null {
   const [namespace, name = ""] = method.split(".");
   if (namespace === "auth") return null;
+  if (OWNER_METHODS.has(method)) return "owner";
   if (/^(list|get|search)/.test(name)) {
     // These reads return secrets (database passwords, variable values, rows).
     return SENSITIVE_READ_NAMESPACES.has(namespace) ? "developer" : "viewer";

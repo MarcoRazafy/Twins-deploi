@@ -1,5 +1,5 @@
 import { avatarProblem } from "@/lib/avatar";
-import { ENTITIES, type Api, type DeepPartial } from "@/lib/api/contract";
+import { ApiError, ENTITIES, type Api, type DeepPartial } from "@/lib/api/contract";
 import {
   REGIONS,
   type ApiToken,
@@ -310,6 +310,14 @@ export const settingsApi: Api["settings"] = {
       });
       emit(["settings", "activity"]);
     }),
+
+  // A terminal on the host needs a host: the simulator has none.
+  getServerConsole: () => read(() => ({ enabled: false, updatedBy: null, updatedAt: null })),
+
+  setServerConsole: async () => {
+    await latency.write();
+    throw new ApiError("unavailable", "La console du serveur n’existe que sur une vraie installation.");
+  },
 
   resetDemoData: async () => {
     await latency.write();

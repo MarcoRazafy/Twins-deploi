@@ -54,6 +54,7 @@ import type {
   ProjectSummary,
   QueryResult,
   Region,
+  ServerConsoleStatus,
   Service,
   ServiceConfig,
   ServiceConnection,
@@ -286,6 +287,12 @@ export interface ActivityFilter {
   limit?: number;
 }
 
+export interface SetServerConsoleInput {
+  enabled: boolean;
+  /** Password of the owner; required to enable. */
+  password?: string;
+}
+
 /** Recursive partial used for settings patches. */
 export type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
@@ -500,6 +507,13 @@ export interface Api {
     inviteMember(input: { email: string; role: MemberRole }): Promise<TeamMember>;
     updateMember(id: ID, patch: { role: MemberRole }): Promise<TeamMember>;
     removeMember(id: ID): Promise<void>;
+    /** Owner only. */
+    getServerConsole(): Promise<ServerConsoleStatus>;
+    /**
+     * Owner only, from a browser session. Turning the console on asks for the
+     * owner's password again; turning it off ends the open terminals.
+     */
+    setServerConsole(input: SetServerConsoleInput): Promise<ServerConsoleStatus>;
     /** Restores the demo dataset (mock only; a real backend would reject). */
     resetDemoData(): Promise<void>;
   };

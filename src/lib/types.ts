@@ -648,7 +648,9 @@ export type ActivityType =
   | "backup.restored"
   | "github.connected"
   | "github.disconnected"
-  | "settings.updated";
+  | "settings.updated"
+  | "console.opened"
+  | "console.closed";
 
 export type ActivitySeverity = "info" | "success" | "warning" | "error";
 
@@ -714,6 +716,17 @@ export interface ApiToken {
   createdAt: ISODate;
   lastUsedAt: ISODate | null;
   expiresAt: ISODate | null;
+}
+
+/**
+ * Switch of the server console (sidebar entry "Console"): a terminal on the
+ * host itself, for the owner only. Off on a fresh installation.
+ */
+export interface ServerConsoleStatus {
+  enabled: boolean;
+  /** Who flipped the switch last, and when (null: never touched). */
+  updatedBy: string | null;
+  updatedAt: ISODate | null;
 }
 
 export interface PlatformSettings {

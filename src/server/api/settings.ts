@@ -1,10 +1,17 @@
 import type { Api, DeepPartial } from "@/lib/api/contract";
 import { avatarProblem } from "@/lib/avatar";
-import { REGIONS, type MemberRole, type PlatformSettings } from "@/lib/types";
+import { REGIONS, type MemberRole, type PlatformSettings, type UserProfile } from "@/lib/types";
 
 import { recordActivity } from "../activity";
-import { generateApiToken } from "../auth";
-import { requireUser, type Context } from "../context";
+import {
+  clearLoginFailures,
+  generateApiToken,
+  loginKey,
+  loginLockRemaining,
+  recordLoginFailure,
+} from "../auth";
+import { hasRole, requireUser, type Context } from "../context";
+import { verifyPassword } from "../crypto";
 import { db } from "../db";
 import { conflict, forbidden, isUniqueViolation, notFound, validation } from "../errors";
 import { emit } from "../events";
@@ -13,6 +20,7 @@ import { overlay } from "../mappers/settings";
 import { toApiToken } from "../mappers/token";
 import { toTeamMember, toUserProfile } from "../mappers/user";
 import { getPlatformSettings, savePlatformSettings } from "../platform-settings";
+import { getServerConsoleStatus, saveServerConsoleStatus } from "../terminal/settings";
 import {
   asRecord,
   asString,
@@ -115,6 +123,15 @@ function assertAssignable(role: unknown): asserts role is MemberRole {
   if (!(ASSIGNABLE_ROLES as readonly unknown[]).includes(role)) {
     throw validation("Ce rôle n’existe pas.", "role");
   }
+}
+
+/** The server console is a shell on the host: nobody but the owner sees or flips its switch. */
+function requireOwner(ctx: Context): UserProfile {
+  const user = requireUser(ctx);
+  if (!hasRole(ctx.role, "owner")) {
+    throw forbidden("Seul le propriétaire peut gérer la console du serveur.");
+  }
+  return user;
 }
 
 export function createSettingsApi(ctx: Context): Api["settings"] {
@@ -318,6 +335,58 @@ export function createSettingsApi(ctx: Context): Api["settings"] {
           tx,
         );
         await emit(["settings"], {}, tx);
+      });
+    },
+
+    async getServerConsole() {
+      requireOwner(ctx);
+      return getServerConsoleStatus();
+    },
+
+    async setServerConsole(rawInput) {
+      const owner = requireOwner(ctx);
+      const input = asRecord(rawInput);
+      if (typeof input.enabled !== "boolean") {
+        throw validation("Indiquez si la console doit être activée ou désactivée.", "enabled");
+      }
+      const enabled = input.enabled;
+
+      // Turning the console off must always work; turning it on is the sensitive direction:
+      // a stolen session cookie or an API token is not enough, the password is asked again.
+      if (enabled) {
+        if (ctx.via !== "session") {
+          throw forbidden("La console du serveur ne s’active que depuis l’interface, pas avec un jeton d’API.");
+        }
+        const key = loginKey(ctx.client.address, owner.email);
+        if (loginLockRemaining(key) > 0) {
+          throw forbidden("Trop de tentatives. Réessayez dans une minute.");
+        }
+        const row = await db().user.findUnique({ where: { id: owner.id } });
+        const valid = await verifyPassword(asString(input.password), row?.passwordHash ?? null);
+        if (!valid) {
+          recordLoginFailure(key);
+          throw validation("Mot de passe incorrect.", "password");
+        }
+        clearLoginFailures(key);
+      }
+
+      return db().$transaction(async (tx) => {
+        const current = await getServerConsoleStatus(tx);
+        if (current.enabled === enabled) return current;
+        const next = { enabled, updatedBy: owner.email, updatedAt: new Date().toISOString() };
+        await saveServerConsoleStatus(next, tx);
+        await recordActivity(
+          {
+            type: "settings.updated",
+            severity: "warning",
+            title: enabled ? "Console du serveur activée" : "Console du serveur désactivée",
+            description: `${owner.email} · ${ctx.client.address}`,
+            actor: owner.name,
+          },
+          tx,
+        );
+        await emit(["settings"], {}, tx);
+        return next;
       });
     },
 

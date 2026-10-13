@@ -84,6 +84,18 @@ export const env = {
   get claudeHelper(): string | null {
     return optional("MINI_RAILWAY_CLAUDE_HELPER");
   },
+  /**
+   * Loopback port of the terminal service (server console). next.config.ts
+   * reads the same variable at build time for its rewrite.
+   */
+  get terminalPort(): number {
+    const raw = optional("MINI_RAILWAY_TERMINAL_PORT");
+    const port = raw === null ? 3101 : Number(raw);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error("MINI_RAILWAY_TERMINAL_PORT must be a port between 1024 and 65535");
+    }
+    return port;
+  },
   /** Contact e-mail given to Let's Encrypt (expiry notices). Optional. */
   get acmeEmail(): string | null {
     return optional("MINI_RAILWAY_ACME_EMAIL");
