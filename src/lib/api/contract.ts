@@ -23,6 +23,7 @@ import type {
   ApiToken,
   AuthSession,
   Builder,
+  CommandRun,
   Container,
   ContainerAction,
   Database,
@@ -452,6 +453,16 @@ export interface Api {
     ): Promise<DatabaseTableData>;
     /** Read-only SQL console (the mock understands simple SELECTs). */
     runQuery(id: ID, sql: string): Promise<QueryResult>;
+    /**
+     * Command console of a database: starts one shell command line inside the
+     * container of an APPLICATION service of the same project (`serviceId`, by
+     * default the first one linked to the database) — e.g. `npm run db:migrate`.
+     * No terminal. Resolves at once; follow the command with `getCommand`.
+     * One command at a time per database (`conflict` otherwise).
+     */
+    startCommand(id: ID, command: string, serviceId?: ID): Promise<CommandRun>;
+    /** State and output so far of a command of this database (`not_found` once forgotten). */
+    getCommand(id: ID, runId: ID): Promise<CommandRun>;
     listBackups(id: ID): Promise<DatabaseBackup[]>;
     /** Resolves with an `in_progress` backup that completes asynchronously. */
     createBackup(id: ID, label?: string): Promise<DatabaseBackup>;

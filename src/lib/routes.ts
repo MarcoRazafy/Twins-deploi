@@ -52,6 +52,9 @@ export const routes = {
     withQuery("/deployments", query),
   deployment: (deploymentId: string) => `/deployments/${deploymentId}`,
 
+  /** Chat with Claude Code running on the server (real backend only). */
+  claude: () => "/claude",
+
   settings: (section?: string) => withQuery("/settings", { section }),
 } as const;
 
@@ -62,6 +65,7 @@ export const SERVICE_TABS = [
   "metrics",
   "logs",
   "data",
+  "console",
   "connect",
   "backups",
   "settings",

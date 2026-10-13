@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, CornerDownLeft, RotateCcw } from "lucide-react";
 
-import { NAV_ITEMS, QUICK_CREATE_ACTIONS } from "@/components/layout/nav-config";
+import { isNavItemVisible, NAV_ITEMS, QUICK_CREATE_ACTIONS } from "@/components/layout/nav-config";
 import { ProjectAvatar } from "@/components/shared/project-avatar";
 import { ServiceIcon } from "@/components/shared/service-icon";
 import { StatusDot } from "@/components/shared/status-badge";
@@ -21,7 +21,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { useHotkey } from "@/hooks/use-hotkey";
 import { API_MODE } from "@/lib/api";
 import { pluralize } from "@/lib/format";
-import { useProjects } from "@/lib/queries";
+import { useProjects, useSession } from "@/lib/queries";
 import { routes } from "@/lib/routes";
 import { SERVICE_STATUS, SERVICE_TYPE_LABELS } from "@/lib/status";
 import { useUiStore } from "@/stores/ui-store";
@@ -94,6 +94,7 @@ export function CommandPalette({ onResetDemo }: { onResetDemo: () => void }) {
   const open = useUiStore((state) => state.commandOpen);
   const setOpen = useUiStore((state) => state.setCommandOpen);
   const { data: projects } = useProjects();
+  const role = useSession().data?.user?.role ?? null;
 
   useHotkey(
     "mod+k",
@@ -123,7 +124,7 @@ export function CommandPalette({ onResetDemo }: { onResetDemo: () => void }) {
           <CommandEmpty>Aucun résultat.</CommandEmpty>
 
           <CommandGroup heading="Navigation">
-            {NAV_ITEMS.map(({ id, label, href, icon: Icon, keywords }) => (
+            {NAV_ITEMS.filter((item) => isNavItemVisible(item, role)).map(({ id, label, href, icon: Icon, keywords }) => (
               <CommandItem
                 key={id}
                 value={`${label}${VALUE_SEPARATOR}${href}`}

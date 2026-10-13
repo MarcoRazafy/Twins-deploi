@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 
-import { NAV_GROUPS, SETTINGS_ITEM, type NavItem } from "@/components/layout/nav-config";
+import { isNavItemVisible, NAV_GROUPS, SETTINGS_ITEM, type NavItem } from "@/components/layout/nav-config";
 import { UserMenu } from "@/components/layout/user-menu";
 import { Logo, LogoMark } from "@/components/shared/logo";
 import { StatusDot } from "@/components/shared/status-badge";
@@ -26,7 +26,7 @@ import type { DeploymentFilter } from "@/lib/api/contract";
 import { APP_NAME } from "@/lib/constants";
 import { pluralize } from "@/lib/format";
 import { SPRING } from "@/lib/motion";
-import { useDeployments, useProjects } from "@/lib/queries";
+import { useDeployments, useProjects, useSession } from "@/lib/queries";
 import { routes } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
@@ -125,6 +125,7 @@ export function AppSidebar({ onResetDemo }: { onResetDemo: () => void }) {
   const { setOpenMobile } = useSidebar();
   const { data: inFlight } = useDeployments(IN_FLIGHT_FILTER);
   const { data: projects } = useProjects();
+  const role = useSession().data?.user?.role ?? null;
 
   const counts: LiveCounts = {
     inFlightDeployments: inFlight?.length ?? 0,
@@ -153,7 +154,7 @@ export function AppSidebar({ onResetDemo }: { onResetDemo: () => void }) {
             <SidebarGroupLabel className="text-muted-foreground">{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map((item) => (
+                {group.items.filter((item) => isNavItemVisible(item, role)).map((item) => (
                   <NavMenuItem
                     key={item.id}
                     item={item}

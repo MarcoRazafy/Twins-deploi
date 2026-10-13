@@ -28,7 +28,7 @@ export function formatStorage({ storageUsedMb, storageLimitMb }: StorageFigures)
 }
 
 /** Tabs of the database page (`?tab=`); the names match the workspace service panel. */
-export const DATABASE_TABS = ["overview", "data", "connect", "backups", "settings"] as const;
+export const DATABASE_TABS = ["overview", "data", "console", "connect", "backups", "settings"] as const;
 export type DatabaseTab = (typeof DATABASE_TABS)[number];
 
 export function parseDatabaseTab(value: string | null): DatabaseTab {

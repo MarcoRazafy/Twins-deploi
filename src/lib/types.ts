@@ -515,6 +515,26 @@ export interface QueryResult {
   durationMs: number;
 }
 
+/**
+ * One command line of a database console, run in an application container
+ * (`databases.startCommand`, then `databases.getCommand` until `running` is false).
+ */
+export interface CommandRun {
+  id: ID;
+  running: boolean;
+  /** Null while it runs; -1 when it is not known (the console stopped waiting). */
+  exitCode: number | null;
+  /** Output so far. */
+  stdout: string;
+  stderr: string;
+  /** The output was longer than the console keeps: only its end is returned. */
+  truncated: boolean;
+  /** The console stopped waiting for it; the command itself is not killed and may still be running. */
+  timedOut: boolean;
+  /** Time since the start, up to the end of the command. */
+  durationMs: number;
+}
+
 export type BackupStatus = "in_progress" | "completed" | "failed";
 
 export interface DatabaseBackup {

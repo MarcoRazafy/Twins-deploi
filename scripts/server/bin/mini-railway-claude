@@ -1,0 +1,224 @@
+#!/usr/bin/python3 -I
+"""Run Claude Code as root for Mini Railway's "Claude Code" page.
+
+The platform runs unprivileged. It calls this helper through sudo (see
+/etc/sudoers.d/mini-railway) to start one headless Claude Code turn with the
+root account's own Claude login (/root/.claude).
+
+UNLIKE THE OTHER HELPERS, THIS ONE IS NOT A PRIVILEGE BOUNDARY: the prompt it
+receives drives an agent that may run any command and edit any file as root,
+without asking. Whoever can call it is root. It is therefore opt-in
+(setup.sh --claude-code), and the platform only reaches it for signed-in
+members with the developer role or above.
+
+What is still validated is the shape of the call, so that nothing but a prompt
+is ever interpreted: the session id is a UUID, the working directory an
+existing absolute directory, the model a plain identifier.
+
+Usage:
+  mini-railway-claude run [--resume UUID] [--cwd DIR] [--model NAME]
+  mini-railway-claude status
+
+`run` reads ONE line on stdin, a JSON object {"prompt": "..."}, then keeps
+stdin open as the cancel channel: when the caller closes it (stop button,
+closed tab, web process restarted) the whole Claude Code process tree is
+terminated. The caller cannot signal a root process, hence this channel.
+Claude Code's stream-json output goes to stdout untouched.
+
+Exit codes: 0 ok, 2 invalid input, 3 Claude Code is not installed for root,
+otherwise the exit code of Claude Code (143 when cancelled).
+"""
+
+import argparse
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+
+ROOT_HOME = "/root"
+CLAUDE_CANDIDATES = (
+    "/root/.local/bin/claude",
+    "/usr/local/bin/claude",
+    "/usr/bin/claude",
+)
+# Everything a turn may need, allowed up front: nobody is there to answer a
+# permission prompt. (Claude Code refuses its "bypass" mode for root; explicit
+# allow rules are the supported way to say the same thing.)
+ALLOWED_TOOLS = (
+    "Bash",
+    "Edit",
+    "Write",
+    "Read",
+    "Glob",
+    "Grep",
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch",
+    "Task",
+    "TodoWrite",
+    "Skill",
+)
+MAX_INPUT_BYTES = 512 * 1024
+MAX_PROMPT_CHARS = 100_000
+KILL_GRACE_SECONDS = 5
+
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{0,63}$")
+
+
+def fail(code, message):
+    print(f"mini-railway-claude: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def find_claude():
+    for candidate in CLAUDE_CANDIDATES:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def validate_cwd(raw):
+    if not os.path.isabs(raw) or "\0" in raw or len(raw) > 1024:
+        fail(2, "refused working directory: an absolute path is expected")
+    resolved = os.path.realpath(raw)
+    if not os.path.isdir(resolved):
+        fail(2, f"refused working directory {raw!r}: not an existing directory")
+    return resolved
+
+
+def read_prompt():
+    line = sys.stdin.buffer.readline(MAX_INPUT_BYTES + 1)
+    if len(line) > MAX_INPUT_BYTES:
+        fail(2, "the request is too large")
+    try:
+        payload = json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        fail(2, "the first line of stdin must be a JSON object")
+    prompt = payload.get("prompt") if isinstance(payload, dict) else None
+    if not isinstance(prompt, str) or prompt.strip() == "":
+        fail(2, "the prompt is empty")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        fail(2, f"the prompt exceeds {MAX_PROMPT_CHARS} characters")
+    return prompt
+
+
+def child_environment(claude):
+    """A plain root login environment: nothing of the caller's reaches Claude Code."""
+    return {
+        "HOME": ROOT_HOME,
+        "USER": "root",
+        "LOGNAME": "root",
+        "SHELL": "/bin/bash",
+        "LANG": "C.UTF-8",
+        "TERM": "dumb",
+        "PATH": f"{os.path.dirname(claude)}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    }
+
+
+def run(args):
+    claude = find_claude()
+    if claude is None:
+        fail(3, "Claude Code is not installed for root (expected /root/.local/bin/claude)")
+    if args.resume is not None and not UUID_RE.fullmatch(args.resume):
+        fail(2, "refused session id: a UUID is expected")
+    if args.model is not None and not MODEL_RE.fullmatch(args.model):
+        fail(2, "refused model name")
+    cwd = validate_cwd(args.cwd)
+    prompt = read_prompt()
+
+    command = [
+        claude,
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--allowedTools",
+        ",".join(ALLOWED_TOOLS),
+    ]
+    if args.resume is not None:
+        command += ["--resume", args.resume]
+    if args.model is not None:
+        command += ["--model", args.model]
+
+    # Own session: one signal to the group reaches Claude Code and everything it started.
+    child = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=child_environment(claude),
+        stdin=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    def terminate(*_):
+        for sig, wait in ((signal.SIGTERM, KILL_GRACE_SECONDS), (signal.SIGKILL, None)):
+            try:
+                os.killpg(child.pid, sig)
+            except ProcessLookupError:
+                return
+            try:
+                child.wait(timeout=wait)
+                return
+            except subprocess.TimeoutExpired:
+                continue
+
+    def watch_cancel():
+        # The caller writes nothing more: the end of stdin is its "stop". Raw reads:
+        # a thread blocked in the buffered reader would break interpreter shutdown.
+        try:
+            while os.read(0, 4096):
+                pass
+        except OSError:
+            pass
+        if child.poll() is None:
+            terminate()
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, terminate)
+
+    try:
+        child.stdin.write(prompt.encode("utf-8"))
+        child.stdin.close()
+    except OSError:
+        pass  # Claude Code exited at once: its exit code tells what happened.
+
+    threading.Thread(target=watch_cancel, daemon=True).start()
+    code = child.wait()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Not sys.exit: the watcher thread may still be blocked on stdin.
+    os._exit(128 - code if code < 0 else code)
+
+
+def status():
+    claude = find_claude()
+    logged_in = os.path.isfile(os.path.join(ROOT_HOME, ".claude", ".credentials.json"))
+    print(json.dumps({"ok": claude is not None, "claude": claude, "loggedIn": logged_in}))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="mini-railway-claude", description=__doc__.split("\n\n")[0], allow_abbrev=False
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    run_parser = commands.add_parser("run", allow_abbrev=False)
+    run_parser.add_argument("--resume")
+    run_parser.add_argument("--cwd", default=ROOT_HOME)
+    run_parser.add_argument("--model")
+    commands.add_parser("status", allow_abbrev=False)
+    args = parser.parse_args()
+
+    if os.geteuid() != 0:
+        fail(2, "must be run as root (through sudo)")
+    if args.command == "status":
+        status()
+    else:
+        run(args)
+
+
+if __name__ == "__main__":
+    main()

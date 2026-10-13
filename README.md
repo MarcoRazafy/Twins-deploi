@@ -65,10 +65,11 @@ Lucide · Motion · TanStack Query · Zustand · Recharts.
 | `/projects/[id]/settings` | Réglages d'un projet |
 | `/github` | Connexion GitHub, import de dépôts, choix des branches |
 | `/docker` | Conteneurs (état, ressources, logs, actions) et images |
-| `/databases`, `/databases/[id]` | Bases PostgreSQL : données, connexion, sauvegardes, réglages |
+| `/databases`, `/databases/[id]` | Bases PostgreSQL : données, console (commandes de l'application), connexion, sauvegardes, réglages |
 | `/variables` | Variables d'environnement par service et variables partagées |
 | `/domains` | Domaines générés et personnalisés, DNS, SSL |
 | `/deployments`, `/deployments/[id]` | Historique, statuts et logs en direct |
+| `/claude` | **Claude Code** : chat avec Claude Code exécuté sur le serveur (en root, option `setup.sh --claude-code`, rôle développeur au minimum) |
 | `/settings` | Configuration de la plateforme |
 | `/dev/kit` | Guide de style vivant du kit de composants (outil interne) |
 

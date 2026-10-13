@@ -1,6 +1,6 @@
 import type { Api, EntityName } from "@/lib/api/contract";
 import { POSTGRES_VERSIONS } from "@/lib/constants";
-import type { DatabaseBackup } from "@/lib/types";
+import type { CommandRun, DatabaseBackup } from "@/lib/types";
 
 import { addActivity } from "../domain/activity";
 import { connectServices } from "../domain/connections";
@@ -20,6 +20,7 @@ import {
 } from "../domain/services";
 import { emit } from "../emitter";
 import { conflict, invalid, notFound, unavailable } from "../errors";
+import { runShell } from "../generators/shell";
 import { runSql } from "../generators/sql";
 import { describeTables, findTable, readRows } from "../generators/tables";
 import { newId, newPassword, randomBetween, randomInt } from "../ids";
@@ -43,6 +44,33 @@ function assertOnline(db: MockDb, database: DatabaseRecord): void {
   if (liveStatus(db, database) !== "online") {
     throw unavailable("La base de données n’est pas en ligne pour le moment.");
   }
+}
+
+/** Console runs of this page; like the server's, they do not survive a reload. */
+const commandRuns = new Map<string, { databaseId: string; run: CommandRun }>();
+
+/** Same rule as the server: the service asked for, otherwise the first application linked to the database. */
+function consoleTarget(db: MockDb, database: DatabaseRecord, serviceId: string | undefined) {
+  if (serviceId) {
+    const service = db.services.find((item) => item.id === serviceId && item.projectId === database.projectId);
+    if (!service) throw notFound("Service");
+    if (service.source.type === "postgres") {
+      throw invalid("La console exécute les commandes dans un service applicatif, pas dans une base.", "serviceId");
+    }
+    return service;
+  }
+  const linked = db.connections
+    .filter((link) => link.fromServiceId === database.serviceId || link.toServiceId === database.serviceId)
+    .map((link) => (link.fromServiceId === database.serviceId ? link.toServiceId : link.fromServiceId))
+    .map((linkedId) => db.services.find((item) => item.id === linkedId))
+    .find((item) => item && item.source.type !== "postgres");
+  if (!linked) {
+    throw invalid(
+      "Aucun service applicatif n’est relié à cette base : reliez-en un sur le canvas ou choisissez le service.",
+      "serviceId",
+    );
+  }
+  return linked;
 }
 
 const supportedVersions: readonly string[] = POSTGRES_VERSIONS;
@@ -255,6 +283,39 @@ export const databasesApi: Api["databases"] = {
         rowCount: result.rows.length,
         durationMs: Math.round((randomBetween(0.4, 4) + result.rows.length * 0.012) * 100) / 100,
       };
+    }),
+
+  startCommand: (id, command, serviceId) =>
+    read((db) => {
+      const database = requireDatabase(db, id);
+      const line = (command ?? "").trim();
+      if (line === "") throw invalid("Saisissez une commande.", "command");
+      if (line.length > 4000) {
+        throw invalid("La commande ne peut pas dépasser 4000 caractères.", "command");
+      }
+      const target = consoleTarget(db, database, serviceId);
+      if (target.status !== "online") {
+        throw unavailable(`Le service « ${target.name} » n’est pas en ligne pour le moment.`);
+      }
+      // The simulated command is instantaneous: the run is already finished.
+      const run: CommandRun = {
+        id: newId("cmd"),
+        running: false,
+        ...runShell(line, { serviceName: target.name, database: database.database }),
+        truncated: false,
+        timedOut: false,
+        durationMs: randomInt(40, 400),
+      };
+      commandRuns.set(run.id, { databaseId: database.id, run });
+      return run;
+    }),
+
+  getCommand: (id, runId) =>
+    read((db) => {
+      const database = requireDatabase(db, id);
+      const entry = commandRuns.get(runId);
+      if (!entry || entry.databaseId !== database.id) throw notFound("Commande");
+      return entry.run;
     }),
 
   listBackups: (id) =>

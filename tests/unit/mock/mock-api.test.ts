@@ -163,3 +163,30 @@ describe("domaines", () => {
     expect(await rejection(api.domains.delete(domain.id))).toMatchObject({ code: "not_found" });
   });
 });
+
+describe("bases de données", () => {
+  it("startCommand exécute une commande applicative dans le service relié et valide la saisie", async () => {
+    const { project, service } = await newService("Api");
+    const database = await api.databases.create({ projectId: project.id });
+
+    // Aucune application reliée : il faut la choisir.
+    expect(await rejection(api.databases.startCommand(database.id, "whoami"))).toMatchObject({ code: "validation", field: "serviceId" });
+    expect(await rejection(api.databases.startCommand(database.id, "ls", database.serviceId))).toMatchObject({ code: "validation", field: "serviceId" });
+    expect(await rejection(api.databases.startCommand(database.id, "  ", service.id))).toMatchObject({ code: "validation", field: "command" });
+    expect(await rejection(api.databases.startCommand("db_missing", "ls"))).toMatchObject({ code: "not_found" });
+
+    const target = await api.services.get(service.id);
+    if (target.status !== "online") {
+      expect(await rejection(api.databases.startCommand(database.id, "whoami", service.id))).toMatchObject({ code: "unavailable" });
+      return;
+    }
+    const run = await api.databases.startCommand(database.id, "  whoami ", service.id);
+    expect(run).toMatchObject({ running: false, exitCode: 0, stdout: "node\n", stderr: "", timedOut: false });
+    expect(await api.databases.getCommand(database.id, run.id)).toEqual(run);
+    expect(await rejection(api.databases.getCommand(database.id, "cmd_missing"))).toMatchObject({ code: "not_found" });
+    const migrated = await api.databases.startCommand(database.id, "npx prisma migrate deploy", service.id);
+    expect(migrated).toMatchObject({ exitCode: 0 });
+    expect(migrated.stdout).toContain("No pending migrations");
+    expect(await api.databases.startCommand(database.id, "nope --flag", service.id)).toMatchObject({ exitCode: 127, stderr: "sh: nope: not found\n" });
+  });
+});

@@ -109,6 +109,17 @@ for helper in mini-railway-proxy mini-railway-hosts mini-railway-cert; do
     fail "Assistant ${helper} indisponible (règle /etc/sudoers.d/mini-railway)"
   fi
 done
+claude_helper="$(env_get MINI_RAILWAY_CLAUDE_HELPER)"
+if [[ -n "${claude_helper}" ]]; then
+  claude_status="$(sudo -k -n "${claude_helper}" status 2>/dev/null || true)"
+  if [[ "${claude_status}" == *'"ok": true'* && "${claude_status}" == *'"loggedIn": true'* ]]; then
+    warn "Page « Claude Code » active : Claude Code s'exécute en root, sans confirmation, pour les membres développeur et plus"
+  elif [[ "${claude_status}" == *'"ok": true'* ]]; then
+    fail "Page « Claude Code » active mais Claude Code n'est pas connecté pour root (lancez « claude » en root puis /login)"
+  else
+    fail "Page « Claude Code » active mais son assistant est inutilisable (sudo bash scripts/server/setup.sh --claude-code)"
+  fi
+fi
 base_domain="$(env_get MINI_RAILWAY_BASE_DOMAIN)"
 if [[ -n "${base_domain}" ]]; then
   if getent hosts "${base_domain}" >/dev/null 2>&1; then

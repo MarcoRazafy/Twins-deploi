@@ -49,6 +49,7 @@ src/server/                                   Code serveur partagé web + worker
   builder/          Détection du projet et génération de Dockerfile
   deploy/           Pipeline de déploiement (machine à états)
   proxy.ts          Appels aux assistants sudo mini-railway-proxy / mini-railway-hosts
+  claude/           Page « Claude Code » : appel de l'assistant mini-railway-claude, traduction de son flux
   databases/        Conteneurs PostgreSQL des projets (connexion, tables, requêtes, sauvegardes)
   metrics/          Échantillonnage docker stats + agrégation
   jobs/             File de tâches générique (table jobs) et planificateur
@@ -58,6 +59,7 @@ src/app/api/events/route.ts                   GET  /api/events (SSE)
 src/app/api/logs/deployments/[id]/route.ts    GET  SSE des logs de build/déploiement
 src/app/api/logs/containers/[id]/route.ts     GET  SSE des logs d'exécution
 src/app/api/webhooks/github/route.ts          POST webhook GitHub (signature HMAC)
+src/app/api/claude/route.ts                   GET état, POST un tour de Claude Code (SSE)
 src/lib/api/http.ts                           createHttpApi(): Api (client du RPC + EventSource)
 scripts/server/                               bootstrap.sh, setup.sh, doctor.sh, install.sh, unités systemd, assistants root
 ```
@@ -76,6 +78,7 @@ processus, `.env.local`, `.env`, puis `/etc/mini-railway/mini-railway.env` (écr
 | `MINI_RAILWAY_DATA_DIR` | Dépôts clonés, contextes de build, sauvegardes (`/var/lib/mini-railway`) |
 | `MINI_RAILWAY_BASE_DOMAIN` | Domaine de base des domaines générés (`mini-railway.test`) |
 | `MINI_RAILWAY_PROXY_HELPER`, `MINI_RAILWAY_HOSTS_HELPER` | Chemins des assistants sudo (absents en dev sans setup : le proxy est alors ignoré avec un avertissement) |
+| `MINI_RAILWAY_CLAUDE_HELPER` | Assistant de la page « Claude Code » (`setup.sh --claude-code`). Absent = page désactivée |
 | `NEXT_PUBLIC_API_MODE` | `http` = vrai backend, sinon simulateur |
 
 ## 4. Transport : RPC unique
@@ -229,17 +232,54 @@ Un conteneur `postgres:<version>-alpine` par base, avec volume nommé, sur le r�
 Tables, données et console SQL passent par `pg` (console en lecture seule :
 `default_transaction_read_only`, délai de 5 s, 500 lignes). Sauvegardes : `pg_dump -Fc` via
 `docker exec` vers `<data>/backups/databases/<id>/`, restauration par `pg_restore`.
+Console de commandes (onglet « Console » d'une base, `src/server/databases/console.ts`) : elle est
+affichée sur la base mais exécute des **commandes de l'application** (`npm run db:migrate`,
+`npx prisma migrate deploy`) : une ligne à la fois, par `sh -c`, **dans le conteneur d'un service
+applicatif du même projet** (`docker exec`), là où se trouvent le code et ses variables (`DATABASE_URL`…).
+Cible : le service demandé, sinon le premier service applicatif relié à la base sur le canvas ; jamais
+une base, jamais un autre projet. `databases.startCommand` lance la commande et répond aussitôt ;
+`databases.getCommand` rend son état et sa sortie, que l'interface relit chaque seconde (une migration ou
+un `npx` qui télécharge son paquet dure des minutes). Les exécutions vivent dans la mémoire du processus
+web (oubliées 15 min après leur fin, ou à son redémarrage), une seule à la fois par base. Pas de terminal
+ni d'état conservé entre deux lignes, sortie lue ligne à ligne (64 Kio par flux, la fin est gardée), rôle
+`developer` au minimum. Délai : la plateforme n'attend pas plus de 15 min mais **ne tue rien dans le
+conteneur** (les enfants d'une commande tuée de l'extérieur deviennent orphelins du PID 1 : l'application
+ou, dans un conteneur PostgreSQL, le postmaster, qui redémarre alors en récupération).
 La base interne de la plateforme est sauvegardée chaque jour dans `<data>/backups/platform/`.
 
 ## 11. Règles de sécurité du code serveur
 
 - **Aucun shell** : toute commande passe par `run(cmd, args[])` (`spawn` sans `shell`),
   les arguments viennent de valeurs validées (identifiants générés, slugs, ports entiers).
+  Seule exception, voulue : la console d'une base passe la ligne saisie, en un seul argument,
+  au shell **du conteneur du service applicatif visé** ; rien n'est interprété sur l'hôte.
 - **Aucun secret** dans la ligne de commande, les logs ou les messages d'erreur : jeton
   GitHub transmis à git par variables `GIT_CONFIG_*`, variables des conteneurs par `--env-file`.
 - Chemins construits uniquement à partir d'identifiants générés, sous `MINI_RAILWAY_DATA_DIR`.
 - Webhooks GitHub : signature `X-Hub-Signature-256` vérifiée en temps constant.
 - Les entrées utilisateur (noms, hôtes, clés, commandes de démarrage) sont validées par `rules.ts`.
+
+### Page « Claude Code » : l'exception assumée
+
+La page `/claude` (`src/features/claude-code`) est un chat avec Claude Code exécuté **sur le
+serveur, en root, sans confirmation** : c'est l'équivalent de la commande `claude` dans un
+terminal root. Elle sort donc volontairement des règles ci-dessus et n'existe que si
+`sudo bash scripts/server/setup.sh --claude-code` l'a activée (`--no-claude-code` la retire).
+
+- `POST /api/claude` `{ prompt, sessionId?, cwd? }` : session ou jeton d'API, en-tête CSRF, rôle
+  `developer` au minimum, un tour à la fois par utilisateur (4 au total). Réponse SSE d'événements
+  `ClaudeEvent` (`src/lib/claude-events.ts`) : `session`, `text`, `tool`, `tool_result`, `done`, `error`.
+- `src/server/claude/run.ts` lance `sudo -n mini-railway-claude run --cwd <dossier> [--resume <uuid>]`.
+  Le message part sur stdin (jamais en argument) ; stdin reste ouvert et **sa fermeture annule le
+  tour** (bouton Arrêter, onglet fermé, redémarrage du processus web) : l'assistant tue alors tout
+  le groupe de processus de Claude Code.
+- L'assistant lance `claude -p --output-format stream-json` avec le compte Claude de root
+  (`/root/.claude`) et une liste d'outils autorisés d'avance (Bash, Edit, Write, Read…). Il ne
+  valide que la forme de l'appel (UUID, dossier existant) : **qui peut l'appeler est root**.
+- Les conversations affichées vivent dans le `localStorage` du navigateur ; le serveur ne garde que
+  les sessions de Claude Code (`/root/.claude/projects`) et une ligne de journal par tour
+  (`[claude] turn started by <e-mail> …`, sans le message).
+- Un tour qui redémarre `mini-railway-web` coupe son propre flux : préférer un redémarrage manuel.
 
 ## 12. Commandes
 

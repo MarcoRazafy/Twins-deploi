@@ -23,6 +23,10 @@
 #                    deux seules commandes que la plateforme peut lancer en root
 #                    (règle /etc/sudoers.d/mini-railway). Ils n'acceptent que des
 #                    données validées (nom d'hôte, port local), jamais de configuration.
+#                    Option --claude-code : installe en plus mini-railway-claude, qui
+#                    lance Claude Code en root pour la page « Claude Code ». Ce
+#                    n'est PAS un assistant à données validées : qui peut l'appeler
+#                    est root. Désactivé par défaut.
 #   6. Domaine local : ajoute le domaine de base à /etc/hosts (bloc géré).
 #   7. NGINX       : /etc/nginx/conf.d/mini-railway.conf + /etc/nginx/mini-railway.d/.
 #
@@ -48,6 +52,8 @@ trap 'die "Échec à la ligne ${LINENO} : ${BASH_COMMAND}"' ERR
 MR_USER="${SUDO_USER:-}"
 BASE_DOMAIN="mini-railway.test"
 ACME_EMAIL=""
+# "" = garder l'état actuel ; 1 = activer ; 0 = désactiver.
+CLAUDE_CODE=""
 ACME_DIR="/var/lib/mini-railway/acme"
 DATA_DIR="/var/lib/mini-railway"
 LOG_DIR="/var/log/mini-railway"
@@ -72,6 +78,10 @@ Options
   --user NOM            Compte Linux qui exécute la plateforme (défaut : l'utilisateur sudo)
   --base-domain DOMAINE Domaine de base des applications (défaut : mini-railway.test)
   --acme-email EMAIL    Adresse donnée à Let's Encrypt (avis d'expiration). Optionnel.
+  --claude-code         Active la page « Claude Code » : la plateforme peut lancer Claude Code
+                        EN ROOT, sans confirmation, pour ses membres (développeur et plus).
+                        Claude Code doit être installé et connecté pour root.
+  --no-claude-code      Désactive la page « Claude Code » et retire son assistant.
   -h, --help            Affiche cette aide
 EOF
 }
@@ -81,6 +91,8 @@ while [[ $# -gt 0 ]]; do
     --user)        [[ $# -ge 2 ]] || die "--user attend une valeur"; MR_USER="$2"; shift 2 ;;
     --base-domain) [[ $# -ge 2 ]] || die "--base-domain attend une valeur"; BASE_DOMAIN="$2"; shift 2 ;;
     --acme-email)  [[ $# -ge 2 ]] || die "--acme-email attend une valeur"; ACME_EMAIL="$2"; shift 2 ;;
+    --claude-code)    CLAUDE_CODE=1; shift ;;
+    --no-claude-code) CLAUDE_CODE=0; shift ;;
     -h|--help)     usage; exit 0 ;;
     *)             die "Option inconnue : $1 (voir --help)" ;;
   esac
@@ -100,7 +112,7 @@ BASE_DOMAIN="${BASE_DOMAIN,,}"
   || die "Domaine de base invalide : ${BASE_DOMAIN}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for helper in mini-railway-proxy mini-railway-hosts mini-railway-cert; do
+for helper in mini-railway-proxy mini-railway-hosts mini-railway-cert mini-railway-claude; do
   [[ -f "${SCRIPT_DIR}/bin/${helper}" ]] || die "Fichier manquant : ${SCRIPT_DIR}/bin/${helper}"
 done
 if [[ -n "${ACME_EMAIL}" ]]; then
@@ -305,11 +317,43 @@ install -o root -g root -m 755 "${SCRIPT_DIR}/bin/mini-railway-hosts" "${SBIN_DI
 install -o root -g root -m 755 "${SCRIPT_DIR}/bin/mini-railway-cert" "${SBIN_DIR}/mini-railway-cert"
 ok "${SBIN_DIR}/mini-railway-proxy, mini-railway-hosts et mini-railway-cert"
 
+# Claude Code en root : sur demande uniquement, et conservé d'une exécution à l'autre.
+if [[ -z "${CLAUDE_CODE}" ]]; then
+  CLAUDE_CODE=0
+  [[ -z "$(env_get MINI_RAILWAY_CLAUDE_HELPER)" ]] || CLAUDE_CODE=1
+fi
+claude_rule=""
+if [[ "${CLAUDE_CODE}" -eq 1 ]]; then
+  install -o root -g root -m 755 "${SCRIPT_DIR}/bin/mini-railway-claude" "${SBIN_DIR}/mini-railway-claude"
+  env_set MINI_RAILWAY_CLAUDE_HELPER "${SBIN_DIR}/mini-railway-claude"
+  claude_rule="
+# Page « Claude Code » (--claude-code) : lance Claude Code en root, sans confirmation.
+# Contrairement aux trois assistants ci-dessus, celui-ci donne tous les droits à qui l'appelle.
+${MR_USER} ALL=(root) NOPASSWD: ${SBIN_DIR}/mini-railway-claude"
+  ok "${SBIN_DIR}/mini-railway-claude (Claude Code en root pour la page « Claude Code »)"
+  claude_status="$("${SBIN_DIR}/mini-railway-claude" status 2>/dev/null || true)"
+  if [[ "${claude_status}" != *'"ok": true'* ]]; then
+    warn "Claude Code est introuvable pour root (attendu : /root/.local/bin/claude)"
+  elif [[ "${claude_status}" != *'"loggedIn": true'* ]]; then
+    warn "Claude Code n'est pas connecté pour root : lancez « claude » en root puis /login"
+  fi
+else
+  rm -f "${SBIN_DIR}/mini-railway-claude"
+  if [[ -n "$(env_get MINI_RAILWAY_CLAUDE_HELPER)" ]]; then
+    env_tmp="$(mktemp "${ENV_FILE}.XXXXXX")"
+    grep -v -E '^MINI_RAILWAY_CLAUDE_HELPER=' "${ENV_FILE}" > "${env_tmp}" || true
+    chown "${MR_USER}":"${MR_GROUP}" "${env_tmp}"
+    chmod 600 "${env_tmp}"
+    mv -f "${env_tmp}" "${ENV_FILE}"
+    ok "Page « Claude Code » désactivée"
+  fi
+fi
+
 sudoers_tmp="$(mktemp)"
 cat > "${sudoers_tmp}" <<EOF
 # Mini Railway - géré par scripts/server/setup.sh
-# Les trois seules commandes que la plateforme peut exécuter en root.
-${MR_USER} ALL=(root) NOPASSWD: ${SBIN_DIR}/mini-railway-proxy, ${SBIN_DIR}/mini-railway-hosts, ${SBIN_DIR}/mini-railway-cert
+# Les trois seules commandes à données validées que la plateforme peut exécuter en root.
+${MR_USER} ALL=(root) NOPASSWD: ${SBIN_DIR}/mini-railway-proxy, ${SBIN_DIR}/mini-railway-hosts, ${SBIN_DIR}/mini-railway-cert${claude_rule}
 EOF
 if visudo -cf "${sudoers_tmp}" >/dev/null 2>&1; then
   install -o root -g root -m 440 "${sudoers_tmp}" "${SUDOERS_FILE}"

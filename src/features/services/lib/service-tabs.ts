@@ -7,6 +7,7 @@ export const SERVICE_TAB_LABELS: Record<ServiceTab, string> = {
   metrics: "Métriques",
   logs: "Logs",
   data: "Données",
+  console: "Console",
   connect: "Connexion",
   backups: "Sauvegardes",
   settings: "Réglages",
@@ -22,6 +23,7 @@ const APP_TABS: readonly ServiceTab[] = [
 
 const DATABASE_TABS: readonly ServiceTab[] = [
   "data",
+  "console",
   "connect",
   "backups",
   "variables",

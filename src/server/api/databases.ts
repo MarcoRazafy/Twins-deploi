@@ -8,6 +8,7 @@ import { requireUser, type Context } from "../context";
 import { decryptSecret, encryptSecret, randomToken } from "../crypto";
 import { backupFileExists, removeBackupFile } from "../databases/backups";
 import { connectToDatabase, readLiveStats, withDatabase } from "../databases/connect";
+import { checkCommandLine, readConsoleCommand, startConsoleCommand } from "../databases/console";
 import { createDatabase } from "../databases/create";
 import { runReadOnlyQuery, scanStatement } from "../databases/query";
 import { describeTables, readTable } from "../databases/tables";
@@ -43,6 +44,40 @@ async function present(row: DatabaseRecord): Promise<Database> {
 
 function scopeOf(row: DatabaseRecord): { projectId: string; serviceId: string } {
   return { projectId: row.projectId, serviceId: row.serviceId };
+}
+
+/**
+ * The application service whose container runs the console commands of a
+ * database: the one asked for (any application of the same project), otherwise
+ * the first one linked to the database on the canvas.
+ */
+async function consoleTarget(row: DatabaseRecord, serviceId: string) {
+  const select = { id: true, name: true, type: true, status: true, containerName: true } as const;
+  if (serviceId !== "") {
+    const service = await db().service.findFirst({ where: { id: serviceId, projectId: row.projectId }, select });
+    if (!service) throw notFound("Service");
+    if (service.type === "postgres") {
+      throw validation("La console exécute les commandes dans un service applicatif, pas dans une base.", "serviceId");
+    }
+    return service;
+  }
+  const links = await db().serviceConnection.findMany({
+    where: { OR: [{ fromServiceId: row.serviceId }, { toServiceId: row.serviceId }] },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  const linkedIds = links.map((link) => (link.fromServiceId === row.serviceId ? link.toServiceId : link.fromServiceId));
+  const linked = await db().service.findMany({
+    where: { id: { in: linkedIds }, type: { not: "postgres" } },
+    select,
+  });
+  const service = linkedIds.map((linkedId) => linked.find((item) => item.id === linkedId)).find((item) => item);
+  if (!service) {
+    throw validation(
+      "Aucun service applicatif n’est relié à cette base : reliez-en un sur le canvas ou choisissez le service.",
+      "serviceId",
+    );
+  }
+  return service;
 }
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -244,6 +279,27 @@ export function createDatabasesApi(ctx: Context): Api["databases"] {
       // Rejected before any connection is opened.
       const scanned = scanStatement(asString(sql));
       return withDatabase(row, (client) => runReadOnlyQuery(client, scanned));
+    },
+
+    async startCommand(id, command, rawServiceId) {
+      const row = await load(asString(id));
+      // Rejected before anything is asked to Docker.
+      const line = checkCommandLine(asString(command));
+      const target = await consoleTarget(row, asString(rawServiceId));
+      if (target.status !== "online" || target.containerName === null) {
+        throw unavailable(`Le service « ${target.name} » n’est pas en ligne pour le moment.`);
+      }
+      return startConsoleCommand({
+        databaseId: row.id,
+        containerName: target.containerName,
+        serviceName: target.name,
+        line,
+      });
+    },
+
+    async getCommand(id, runId) {
+      const row = await load(asString(id));
+      return readConsoleCommand(row.id, asString(runId));
     },
 
     async listBackups(id) {

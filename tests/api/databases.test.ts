@@ -121,3 +121,34 @@ describe("backups bookkeeping", () => {
     expect((await api.databases.listBackups(database.id)).map((backup) => backup.id)).toEqual(["bkp_running"]);
   });
 });
+
+describe("databases.startCommand", () => {
+  it("targets an application service of the project: the linked one by default", async () => {
+    const database = await api.databases.create({ projectId });
+    // Checked first, whatever the target.
+    await expectApiError(api.databases.startCommand(database.id, "   "), "validation", "command");
+    await expectApiError(api.databases.startCommand(database.id, "x".repeat(4001)), "validation", "command");
+    await expectApiError(api.databases.startCommand("db_missing", "ls"), "not_found");
+
+    // No application linked to the database yet.
+    await expectApiError(api.databases.startCommand(database.id, "npm run"), "validation", "serviceId");
+
+    const web = await deployImage(api, projectId, "web");
+    // Named explicitly: accepted, but its container is not running in these tests.
+    await expectApiError(api.databases.startCommand(database.id, "npm run", web.id), "unavailable");
+    // Still not linked: no default target.
+    await expectApiError(api.databases.startCommand(database.id, "npm run"), "validation", "serviceId");
+    await api.services.connect({ fromServiceId: database.serviceId, toServiceId: web.id });
+    await expectApiError(api.databases.startCommand(database.id, "npm run"), "unavailable");
+
+    // Never a database, never another project.
+    await expectApiError(api.databases.startCommand(database.id, "ls", database.serviceId), "validation", "serviceId");
+    const elsewhere = await api.projects.create({ name: "Ailleurs" });
+    const foreign = await deployImage(api, elsewhere.id, "web");
+    await expectApiError(api.databases.startCommand(database.id, "ls", foreign.id), "not_found");
+
+    // Nothing was started.
+    await expectApiError(api.databases.getCommand(database.id, "cmd_missing"), "not_found");
+    await expectApiError(api.databases.getCommand("db_missing", "cmd_missing"), "not_found");
+  });
+});

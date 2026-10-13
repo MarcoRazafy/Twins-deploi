@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api, type CreateDatabaseInput, type UpdateDatabaseInput } from "@/lib/api";
-import type { ID } from "@/lib/types";
+import type { CommandRun, ID } from "@/lib/types";
 
 import {
   invalidateEntities,
@@ -128,6 +128,32 @@ export function useRunDatabaseQuery() {
       result.command.toUpperCase() === "SELECT"
         ? undefined
         : invalidateEntities(queryClient, ["databases"]),
+  });
+}
+
+/** Starts a console command; follow it with `useDatabaseCommand`. */
+export function useStartDatabaseCommand() {
+  return useMutation({
+    mutationFn: ({ id, command, serviceId }: { id: ID; command: string; serviceId?: ID }) =>
+      api.databases.startCommand(id, command, serviceId),
+  });
+}
+
+const COMMAND_POLL_MS = 1_000;
+
+/**
+ * A console command, polled while it runs. Kept out of the "databases" keys:
+ * invalidating the database must not re-ask for a run the server has forgotten.
+ */
+export function useDatabaseCommand(databaseId: ID, initial: CommandRun | null) {
+  return useQuery({
+    queryKey: ["database-commands", databaseId, initial?.id ?? null] as const,
+    queryFn: initial ? () => api.databases.getCommand(databaseId, initial.id) : skipToken,
+    initialData: initial ?? undefined,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.running && !query.state.error ? COMMAND_POLL_MS : false),
   });
 }
 

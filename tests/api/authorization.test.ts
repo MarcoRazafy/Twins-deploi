@@ -36,6 +36,8 @@ describe("minimumRole", () => {
     // Sensitive reads: secrets travel with them.
     expect(minimumRole("variables.list")).toBe("developer");
     expect(minimumRole("databases.get")).toBe("developer");
+    expect(minimumRole("databases.startCommand")).toBe("developer");
+    expect(minimumRole("databases.getCommand")).toBe("developer");
     expect(minimumRole("projects.create")).toBe("developer");
     expect(minimumRole("projects.delete")).toBe("developer");
     expect(minimumRole("settings.update")).toBe("admin");

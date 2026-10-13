@@ -8,7 +8,12 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { UnderlineTabs } from "@/components/shared/underline-tabs";
 import { Button } from "@/components/ui/button";
-import { DatabaseBackupsPanel, DatabaseConnectionPanel, DatabaseDataPanel } from "@/features/databases";
+import {
+  DatabaseBackupsPanel,
+  DatabaseConnectionPanel,
+  DatabaseConsolePanel,
+  DatabaseDataPanel,
+} from "@/features/databases";
 import { ServiceDeployments } from "@/features/deployments";
 import { ServiceRuntimeLogs } from "@/features/docker";
 import { VariablesEditor } from "@/features/variables";
@@ -55,6 +60,12 @@ function TabContent({ tab, service, projectId, onClose }: TabContentProps) {
       return (
         <DatabaseByService serviceId={service.id}>
           {(databaseId) => <DatabaseDataPanel databaseId={databaseId} />}
+        </DatabaseByService>
+      );
+    case "console":
+      return (
+        <DatabaseByService serviceId={service.id}>
+          {(databaseId) => <DatabaseConsolePanel databaseId={databaseId} />}
         </DatabaseByService>
       );
     case "connect":

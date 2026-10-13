@@ -3,7 +3,16 @@
 import { useId } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, Cable, LayoutDashboard, Rows3, RotateCw, Settings2, Waypoints } from "lucide-react";
+import {
+  Archive,
+  Cable,
+  LayoutDashboard,
+  Rows3,
+  RotateCw,
+  Settings2,
+  SquareTerminal,
+  Waypoints,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { ErrorState } from "@/components/shared/error-state";
@@ -27,6 +36,7 @@ import { isServiceBusy } from "@/lib/status";
 import { isNotFoundError, parseDatabaseTab, type DatabaseTab } from "../lib/database-utils";
 import { DatabaseBackupsPanel } from "./database-backups-panel";
 import { DatabaseConnectionPanel } from "./database-connection-panel";
+import { DatabaseConsolePanel } from "./database-console-panel";
 import { DatabaseDataPanel } from "./database-data-panel";
 import { DatabaseNotFound } from "./database-gate";
 import { DatabaseOverview } from "./database-overview";
@@ -35,12 +45,13 @@ import { DatabaseSettingsPanel } from "./database-settings-panel";
 const TABS: ReadonlyArray<UnderlineTab<DatabaseTab>> = [
   { value: "overview", label: "Aperçu", icon: LayoutDashboard },
   { value: "data", label: "Données", icon: Rows3 },
+  { value: "console", label: "Console", icon: SquareTerminal },
   { value: "connect", label: "Connexion", icon: Cable },
   { value: "backups", label: "Sauvegardes", icon: Archive },
   { value: "settings", label: "Réglages", icon: Settings2 },
 ];
 
-/** /databases/[databaseId]: overview, data, connection, backups and settings of one database. */
+/** /databases/[databaseId]: overview, data, console, connection, backups and settings of one database. */
 export function DatabaseDetailView({ databaseId }: { databaseId: string }) {
   const router = useRouter();
   const idBase = useId();
@@ -152,6 +163,7 @@ export function DatabaseDetailView({ databaseId }: { databaseId: string }) {
         <FadeIn key={tab}>
           {tab === "overview" ? <DatabaseOverview database={database} /> : null}
           {tab === "data" ? <DatabaseDataPanel databaseId={database.id} /> : null}
+          {tab === "console" ? <DatabaseConsolePanel databaseId={database.id} /> : null}
           {tab === "connect" ? <DatabaseConnectionPanel databaseId={database.id} /> : null}
           {tab === "backups" ? <DatabaseBackupsPanel databaseId={database.id} /> : null}
           {tab === "settings" ? (

@@ -77,6 +77,13 @@ export const env = {
   get certHelper(): string | null {
     return optional("MINI_RAILWAY_CERT_HELPER");
   },
+  /**
+   * Root Claude Code helper (scripts/server/bin/mini-railway-claude); null = the
+   * "Claude Code" page is disabled. Opt-in: setup.sh --claude-code.
+   */
+  get claudeHelper(): string | null {
+    return optional("MINI_RAILWAY_CLAUDE_HELPER");
+  },
   /** Contact e-mail given to Let's Encrypt (expiry notices). Optional. */
   get acmeEmail(): string | null {
     return optional("MINI_RAILWAY_ACME_EMAIL");

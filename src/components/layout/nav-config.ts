@@ -11,8 +11,10 @@ import {
 
 import { DockerIcon, GithubIcon, PostgresIcon } from "@/components/icons/brand-icons";
 import type { IconComponent } from "@/components/shared/render-icon";
+import { API_MODE } from "@/lib/api";
 import { APP_NAME } from "@/lib/constants";
 import { routes } from "@/lib/routes";
+import type { MemberRole } from "@/lib/types";
 
 export interface NavItem {
   id: string;
@@ -22,6 +24,10 @@ export interface NavItem {
   /** Extra search terms for the command palette (synonyms, English names). */
   keywords: string[];
   isActive: (pathname: string) => boolean;
+  /** Hidden below this role (the server enforces it; this only avoids a dead link). */
+  minimumRole?: MemberRole;
+  /** Needs the real backend: hidden against the in-browser simulator. */
+  backendOnly?: boolean;
 }
 
 export interface NavGroup {
@@ -136,11 +142,20 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   { id: "activity", label: "Activité", items: [deployments] },
 ];
 
-/** The ten pages, in sidebar order. */
+/** Every page, in sidebar order. */
 export const NAV_ITEMS: readonly NavItem[] = [
   ...NAV_GROUPS.flatMap((group) => group.items),
   SETTINGS_ITEM,
 ];
+
+const ROLE_RANK: Record<MemberRole, number> = { viewer: 0, developer: 1, admin: 2, owner: 3 };
+
+/** Whether the entry is shown to a member with `role` (null while the session loads). */
+export function isNavItemVisible(item: NavItem, role: MemberRole | null): boolean {
+  if (item.backendOnly && API_MODE !== "http") return false;
+  if (item.minimumRole === undefined) return true;
+  return role !== null && ROLE_RANK[role] >= ROLE_RANK[item.minimumRole];
+}
 
 export interface QuickCreateAction {
   id: string;

@@ -16,6 +16,7 @@ import {
   Search,
   Settings,
   Square,
+  SquareTerminal,
   Trash2,
   Workflow,
   ZoomIn,
@@ -68,6 +69,7 @@ function tabShortcuts(service: Service) {
   if (service.source.type === "postgres") {
     return [
       { tab: "data", label: "Données", icon: Database },
+      { tab: "console", label: "Console", icon: SquareTerminal },
       { tab: "connect", label: "Connexion", icon: Link2 },
       { tab: "backups", label: "Sauvegardes", icon: Rocket },
       { tab: "settings", label: "Réglages", icon: Settings },

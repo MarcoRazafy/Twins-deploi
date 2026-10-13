@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { routes } from "@/lib/routes";
 
 import { useAssistantChat } from "../hooks/use-assistant-chat";
 import { ChatPanel, PANEL_ID } from "./chat-panel";
@@ -28,6 +29,9 @@ export function AssistantWidget() {
     if (wasOpen.current && !open) launcherRef.current?.focus({ preventScroll: true });
     wasOpen.current = open;
   }, [open]);
+
+  // The Claude Code page is a chat of its own: the launcher would sit on its send button.
+  if (pathname === routes.claude()) return null;
 
   return (
     <>
