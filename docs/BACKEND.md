@@ -59,7 +59,7 @@ src/app/api/logs/deployments/[id]/route.ts    GET  SSE des logs de build/déploi
 src/app/api/logs/containers/[id]/route.ts     GET  SSE des logs d'exécution
 src/app/api/webhooks/github/route.ts          POST webhook GitHub (signature HMAC)
 src/lib/api/http.ts                           createHttpApi(): Api (client du RPC + EventSource)
-scripts/server/                               setup.sh, doctor.sh, install.sh, unités systemd, assistants root
+scripts/server/                               bootstrap.sh, setup.sh, doctor.sh, install.sh, unités systemd, assistants root
 ```
 
 ## 3. Environnement
