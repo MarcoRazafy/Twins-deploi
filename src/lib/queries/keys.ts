@@ -120,6 +120,7 @@ export const queryKeys = {
     profile: () => ["settings", "profile"] as const,
     tokens: () => ["settings", "tokens"] as const,
     members: () => ["settings", "members"] as const,
+    serverConsole: () => ["settings", "server-console"] as const,
   },
   logs: {
     all: ["logs"] as const,

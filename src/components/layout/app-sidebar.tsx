@@ -131,6 +131,11 @@ export function AppSidebar({ onResetDemo }: { onResetDemo: () => void }) {
     inFlightDeployments: inFlight?.length ?? 0,
     crashedServices: projects?.reduce((total, project) => total + project.stats.crashed, 0) ?? 0,
   };
+  // A group whose entries are all hidden for this role would be a lone label.
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => isNavItemVisible(item, role)),
+  })).filter((group) => group.items.length > 0);
   // Navigating keeps the layout mounted: the mobile sheet has to close itself.
   const closeMobile = () => setOpenMobile(false);
 
@@ -149,12 +154,12 @@ export function AppSidebar({ onResetDemo }: { onResetDemo: () => void }) {
       </SidebarHeader>
 
       <SidebarContent role="navigation" aria-label="Navigation principale">
-        {NAV_GROUPS.map((group) => (
+        {visibleGroups.map((group) => (
           <SidebarGroup key={group.id}>
             <SidebarGroupLabel className="text-muted-foreground">{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.filter((item) => isNavItemVisible(item, role)).map((item) => (
+                {group.items.map((item) => (
                   <NavMenuItem
                     key={item.id}
                     item={item}

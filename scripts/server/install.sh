@@ -13,9 +13,12 @@
 #      dépend plus de nvm ni du Node du système).
 #   2. Clone ou met à jour le code dans /opt/mini-railway/app depuis le dépôt Git.
 #   3. Installe les dépendances, applique les migrations de la base, construit Next.js.
-#   4. Crée et démarre deux services systemd lancés au démarrage de la machine :
-#        mini-railway-web     interface + API, à l'écoute sur 127.0.0.1 uniquement
-#        mini-railway-worker  builds, déploiements, sauvegardes, surveillance
+#   4. Crée et démarre trois services systemd lancés au démarrage de la machine :
+#        mini-railway-web       interface + API, à l'écoute sur 127.0.0.1 uniquement
+#        mini-railway-worker    builds, déploiements, sauvegardes, surveillance
+#        mini-railway-terminal  console du serveur (terminal du propriétaire), sur
+#                               127.0.0.1 uniquement ; refuse tout tant que la console
+#                               n'est pas activée dans Settings → Console du serveur
 #   5. Publie la plateforme dans NGINX sur son domaine de base.
 
 set -Eeuo pipefail
@@ -34,6 +37,7 @@ MR_USER="${SUDO_USER:-}"
 SOURCE=""
 BRANCH="main"
 WEB_PORT="3100"
+TERMINAL_PORT="3101"
 NODE_BIN=""
 APP_ROOT="/opt/mini-railway"
 APP_DIR="${APP_ROOT}/app"
@@ -158,7 +162,7 @@ step "Code de la plateforme"
 units_exist=0
 if [[ -f "${UNIT_DIR}/mini-railway-web.service" ]]; then
   units_exist=1
-  systemctl stop mini-railway-worker.service mini-railway-web.service >/dev/null 2>&1 || true
+  systemctl stop mini-railway-terminal.service mini-railway-worker.service mini-railway-web.service >/dev/null 2>&1 || true
   info "Services arrêtés le temps de la mise à jour"
 fi
 
@@ -181,7 +185,7 @@ as_user bash -c "cd '${APP_DIR}' && npm ci --no-audit --no-fund --loglevel=error
 ok "Dépendances installées"
 as_user bash -c "cd '${APP_DIR}' && npx prisma migrate deploy" >/dev/null
 ok "Migrations de la base appliquées"
-as_user bash -c "cd '${APP_DIR}' && NEXT_PUBLIC_API_MODE=http npm run build" >/dev/null
+as_user bash -c "cd '${APP_DIR}' && NEXT_PUBLIC_API_MODE=http MINI_RAILWAY_TERMINAL_PORT=${TERMINAL_PORT} npm run build" >/dev/null
 ok "Interface construite (mode backend réel)"
 
 # ─────────────────────────────── 4. Services ─────────────────────────────────
@@ -234,14 +238,37 @@ TimeoutStopSec=60
 WantedBy=multi-user.target
 EOF
 
-for unit in mini-railway-web mini-railway-worker; do
+# Console du serveur : un shell du compte ${MR_USER} pour le propriétaire. Contrairement
+# aux deux autres services, NoNewPrivileges est posé : rien de ce qui est lancé depuis un
+# terminal ne peut gagner de droits par sudo ou par un binaire setuid. Jamais de User=root ici.
+cat > "${UNIT_DIR}/mini-railway-terminal.service.tmp" <<EOF
+[Unit]
+Description=Mini Railway - console du serveur (terminal du propriétaire)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+$(unit_common | grep -v '^#')
+Environment=MINI_RAILWAY_TERMINAL_PORT=${TERMINAL_PORT}
+ExecStart=${RUNTIME_DIR}/node/bin/node node_modules/tsx/dist/cli.mjs src/terminal/main.ts
+NoNewPrivileges=yes
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+for unit in mini-railway-web mini-railway-worker mini-railway-terminal; do
   chmod 644 "${UNIT_DIR}/${unit}.service.tmp"
   mv -f "${UNIT_DIR}/${unit}.service.tmp" "${UNIT_DIR}/${unit}.service"
 done
 systemctl daemon-reload
-systemctl enable --quiet mini-railway-web.service mini-railway-worker.service
-systemctl restart mini-railway-web.service mini-railway-worker.service
-ok "mini-railway-web et mini-railway-worker démarrés et activés au démarrage"
+systemctl enable --quiet mini-railway-web.service mini-railway-worker.service mini-railway-terminal.service
+systemctl restart mini-railway-web.service mini-railway-worker.service mini-railway-terminal.service
+ok "mini-railway-web, mini-railway-worker et mini-railway-terminal démarrés et activés au démarrage"
 
 healthy=0
 for _ in $(seq 1 45); do
@@ -256,6 +283,9 @@ fi
 systemctl is-active --quiet mini-railway-worker.service \
   && ok "Worker actif" \
   || warn "Le worker ne tourne pas : journalctl -u mini-railway-worker -n 50"
+systemctl is-active --quiet mini-railway-terminal.service \
+  && ok "Service de console actif (la console reste désactivée tant que le propriétaire ne l'active pas)" \
+  || warn "Le service de console ne tourne pas : journalctl -u mini-railway-terminal -n 50"
 
 # ─────────────────────────────── 5. NGINX ────────────────────────────────────
 step "Publication dans NGINX"
@@ -288,7 +318,8 @@ Installation terminée.
   Code           ${APP_DIR}$([[ ${units_exist} -eq 1 ]] && printf ' (mis à jour)')
   Journaux       journalctl -u mini-railway-web -f
                  journalctl -u mini-railway-worker -f
-  État           systemctl status mini-railway-web mini-railway-worker
+                 journalctl -u mini-railway-terminal -f
+  État           systemctl status mini-railway-web mini-railway-worker mini-railway-terminal
   Mise à jour    git commit dans le dépôt source, puis relancer ce script
 
 À la première visite, l'interface vous demande de créer le compte propriétaire.

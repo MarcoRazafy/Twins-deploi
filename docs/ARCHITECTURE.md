@@ -32,6 +32,7 @@ src/
 │     ├─ projects/             /projects, /projects/[projectId] (workspace), …/settings
 │     ├─ workspace/            /workspace → dernier projet ouvert
 │     ├─ github/ docker/ databases/ variables/ domains/ deployments/ settings/
+│     ├─ console/              /console : terminal sur le serveur (propriétaire, vrai backend)
 ├─ features/<feature>/         Un dossier par domaine fonctionnel
 │  ├─ index.ts                 API publique de la feature (seul point d'import externe)
 │  └─ components/, hooks/, lib/  Interne à la feature
@@ -147,6 +148,7 @@ L'état partageable (filtres, onglet, sélection) vit dans l'URL via `useQueryPa
 | `domains` | `DomainsView`, `ServiceDomains`, `AddDomainDialog` |
 | `deployments` | `DeploymentsView`, `DeploymentDetailView`, `DeploymentList`, `ServiceDeployments`, `DeploymentLogs` |
 | `settings` | `SettingsView` |
+| `server-console` | `ServerConsoleView` (terminal xterm.js relié au service de terminal par WebSocket ; protocole dans `src/lib/server-console.ts`) |
 
 Les dialogues de création sont contrôlés (`open` / `onOpenChange`) pour être
 réutilisés depuis le workspace, le dashboard ou la palette de commandes.

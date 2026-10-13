@@ -69,6 +69,7 @@ Lucide · Motion · TanStack Query · Zustand · Recharts.
 | `/variables` | Variables d'environnement par service et variables partagées |
 | `/domains` | Domaines générés et personnalisés, DNS, SSL |
 | `/deployments`, `/deployments/[id]` | Historique, statuts et logs en direct |
+| `/console` | **Console** : terminal interactif sur le serveur lui-même (compte de la plateforme, jamais root), réservé au propriétaire. Désactivée par défaut : Settings → Console du serveur. Voir `docs/BACKEND.md`, section 11 |
 | `/claude` | **Claude Code** : chat avec Claude Code exécuté sur le serveur (en root, option `setup.sh --claude-code`, rôle développeur au minimum) |
 | `/settings` | Configuration de la plateforme |
 | `/dev/kit` | Guide de style vivant du kit de composants (outil interne) |

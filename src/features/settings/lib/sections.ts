@@ -5,6 +5,7 @@ import {
   Plug,
   Server,
   SlidersHorizontal,
+  SquareTerminal,
   TriangleAlert,
   UserRound,
   Users,
@@ -28,6 +29,7 @@ export const SECTION_META: ReadonlyArray<SectionMeta> = [
   { value: "integrations", label: "Intégrations", icon: Plug },
   { value: "infrastructure", label: "Infrastructure", icon: Server },
   { value: "notifications", label: "Notifications", icon: Bell },
+  { value: "console", label: "Console du serveur", icon: SquareTerminal },
   { value: "danger", label: "Zone de danger", icon: TriangleAlert },
 ];
 

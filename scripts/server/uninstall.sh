@@ -30,7 +30,7 @@ done
 ENV_FILE="/etc/mini-railway/mini-railway.env"
 PROXY_HELPER="/usr/local/sbin/mini-railway-proxy"
 
-for unit in mini-railway-worker mini-railway-web; do
+for unit in mini-railway-terminal mini-railway-worker mini-railway-web; do
   if [[ -f "/etc/systemd/system/${unit}.service" ]]; then
     systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
     rm -f "/etc/systemd/system/${unit}.service"

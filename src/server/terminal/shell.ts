@@ -53,7 +53,9 @@ export function defaultBridgePath(): string {
  * Environment of the shell: built from scratch, so that nothing of the
  * platform's own environment (DATABASE_URL, the encryption key) leaks into it.
  */
-export function shellEnvironment(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function shellEnvironment(
+  base: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> {
   const account = userInfo();
   return {
     HOME: account.homedir,

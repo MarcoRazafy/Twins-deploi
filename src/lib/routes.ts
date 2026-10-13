@@ -55,6 +55,9 @@ export const routes = {
   /** Chat with Claude Code running on the server (real backend only). */
   claude: () => "/claude",
 
+  /** Terminal on the server itself, for the owner (real backend only). */
+  serverConsole: () => "/console",
+
   settings: (section?: string) => withQuery("/settings", { section }),
 } as const;
 
@@ -82,6 +85,7 @@ export const SETTINGS_SECTIONS = [
   "integrations",
   "infrastructure",
   "notifications",
+  "console",
   "danger",
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

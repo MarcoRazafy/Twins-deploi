@@ -23,6 +23,7 @@ export function getActivityHref(event: ActivityEvent): string | null {
   }
   if (event.type.startsWith("github.")) return routes.github();
   if (event.type === "settings.updated") return routes.settings();
+  if (event.type.startsWith("console.")) return routes.settings("console");
   // A deleted service has no panel to open: land on its project instead.
   if (projectId && serviceId && event.type !== "service.deleted") {
     return routes.workspace(projectId, { service: serviceId });

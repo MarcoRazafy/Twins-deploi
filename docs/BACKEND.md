@@ -22,8 +22,9 @@ Navigateur ──HTTP──► NGINX (:80) ──► Next.js (UI + /api)        
 | --- | --- |
 | **web** (`next dev` / `next start`) | Interface, RPC `/api/rpc`, flux SSE, webhooks. Ne fait aucun travail long. |
 | **worker** (`npm run worker`) | File de tâches : builds, déploiements, vérification DNS, sauvegardes, surveillance des conteneurs, métriques, synchronisation Git. |
+| **terminal** (`npm run terminal`) | Console du serveur : WebSocket ↔ pseudo-terminal, pour le propriétaire uniquement (section 11). Écoute sur la boucle locale, refuse tout tant que la console n'est pas activée. |
 
-Les deux partagent PostgreSQL (état + file de tâches + notifications `LISTEN/NOTIFY`).
+Tous partagent PostgreSQL (état + file de tâches + notifications `LISTEN/NOTIFY`).
 
 ## 2. Arborescence
 
@@ -50,16 +51,20 @@ src/server/                                   Code serveur partagé web + worker
   deploy/           Pipeline de déploiement (machine à états)
   proxy.ts          Appels aux assistants sudo mini-railway-proxy / mini-railway-hosts
   claude/           Page « Claude Code » : appel de l'assistant mini-railway-claude, traduction de son flux
+  terminal/         Console du serveur : contrôles de la poignée de main, sessions, pseudo-terminal, interrupteur
   databases/        Conteneurs PostgreSQL des projets (connexion, tables, requêtes, sauvegardes)
   metrics/          Échantillonnage docker stats + agrégation
   jobs/             File de tâches générique (table jobs) et planificateur
 src/worker/main.ts                            Point d'entrée du worker
+src/terminal/main.ts                          Point d'entrée du service de terminal (console du serveur)
+scripts/terminal/pty-bridge.py                Pseudo-terminal d'une session de console (lancé par le service)
 src/app/api/rpc/route.ts                      POST /api/rpc
 src/app/api/events/route.ts                   GET  /api/events (SSE)
 src/app/api/logs/deployments/[id]/route.ts    GET  SSE des logs de build/déploiement
 src/app/api/logs/containers/[id]/route.ts     GET  SSE des logs d'exécution
 src/app/api/webhooks/github/route.ts          POST webhook GitHub (signature HMAC)
 src/app/api/claude/route.ts                   GET état, POST un tour de Claude Code (SSE)
+next.config.ts                                Réécriture /api/terminal/ws → service de terminal (WebSocket)
 src/lib/api/http.ts                           createHttpApi(): Api (client du RPC + EventSource)
 scripts/server/                               bootstrap.sh, setup.sh, doctor.sh, install.sh, unités systemd, assistants root
 ```
@@ -79,6 +84,7 @@ processus, `.env.local`, `.env`, puis `/etc/mini-railway/mini-railway.env` (écr
 | `MINI_RAILWAY_BASE_DOMAIN` | Domaine de base des domaines générés (`mini-railway.test`) |
 | `MINI_RAILWAY_PROXY_HELPER`, `MINI_RAILWAY_HOSTS_HELPER` | Chemins des assistants sudo (absents en dev sans setup : le proxy est alors ignoré avec un avertissement) |
 | `MINI_RAILWAY_CLAUDE_HELPER` | Assistant de la page « Claude Code » (`setup.sh --claude-code`). Absent = page désactivée |
+| `MINI_RAILWAY_TERMINAL_PORT` | Port local du service de terminal (défaut `3101`). Lu aussi par `next.config.ts` **au build** pour la réécriture |
 | `NEXT_PUBLIC_API_MODE` | `http` = vrai backend, sinon simulateur |
 
 ## 4. Transport : RPC unique
@@ -121,7 +127,8 @@ Abonnements (SSE, `text/event-stream`, en-tête `X-Accel-Buffering: no`, ping to
 - Limitation des tentatives de connexion : 5 échecs → blocage 1 minute par adresse.
 - Rôles : `viewer` lecture seule (`list*`, `get*`, `search*`) ; `developer` tout sauf
   `settings.*` en écriture et la gestion des membres ; `admin` et `owner` tout. Le
-  propriétaire ne peut être ni supprimé ni rétrogradé.
+  propriétaire ne peut être ni supprimé ni rétrogradé. Seul `owner` peut lire ou changer
+  l'interrupteur de la console du serveur (`settings.getServerConsole` / `setServerConsole`).
 - `auth.*` est le seul espace accessible sans session.
 
 ## 6. Temps réel
@@ -251,8 +258,9 @@ La base interne de la plateforme est sauvegardée chaque jour dans `<data>/backu
 
 - **Aucun shell** : toute commande passe par `run(cmd, args[])` (`spawn` sans `shell`),
   les arguments viennent de valeurs validées (identifiants générés, slugs, ports entiers).
-  Seule exception, voulue : la console d'une base passe la ligne saisie, en un seul argument,
-  au shell **du conteneur du service applicatif visé** ; rien n'est interprété sur l'hôte.
+  Deux exceptions, voulues : la console d'une base passe la ligne saisie, en un seul argument,
+  au shell **du conteneur du service applicatif visé** (rien n'est interprété sur l'hôte) ; et la
+  **console du serveur**, qui est un shell interactif **sur l'hôte** (voir plus bas).
 - **Aucun secret** dans la ligne de commande, les logs ou les messages d'erreur : jeton
   GitHub transmis à git par variables `GIT_CONFIG_*`, variables des conteneurs par `--env-file`.
 - Chemins construits uniquement à partir d'identifiants générés, sous `MINI_RAILWAY_DATA_DIR`.
@@ -281,12 +289,71 @@ terminal root. Elle sort donc volontairement des règles ci-dessus et n'existe q
   (`[claude] turn started by <e-mail> …`, sans le message).
 - Un tour qui redémarre `mini-railway-web` coupe son propre flux : préférer un redémarrage manuel.
 
+### Console du serveur : un shell sur l'hôte, pour le propriétaire
+
+L'entrée « Console » de la barre latérale (`/console`, `src/features/server-console`) ouvre un
+terminal interactif sur le serveur lui-même (xterm.js dans le navigateur), dans le dossier de
+la plateforme : administration, et `claude` (Claude Code) en plein écran. C'est la deuxième
+entorse à la règle « aucun shell », et la plus large : **le modèle de sécurité devient
+« quiconque contrôle le compte propriétaire a un shell sur le serveur », dès que la console est
+activée.** Le compte n'a qu'un mot de passe, sans second facteur : la console est donc
+**désactivée par défaut** et doit le rester hors des moments où elle sert.
+
+Chemin d'une session :
+
+```
+Navigateur ──wss──► NGINX ──► Next.js (réécriture /api/terminal/ws, next.config.ts)
+                                 └──► mini-railway-terminal (127.0.0.1:3101, src/terminal/main.ts)
+                                        └──► scripts/terminal/pty-bridge.py ──► shell de connexion (pty)
+```
+
+Un route handler ne peut pas accepter un WebSocket : Next.js ne fait que relayer la poignée de
+main, **il ne vérifie rien**. Tous les contrôles sont dans le service (`src/server/terminal/`),
+à l'ouverture puis tout au long de la session :
+
+| Règle | Où | Détail |
+| --- | --- | --- |
+| Même origine | `policy.ts` | En-tête `Origin` **obligatoire** et égal à l'hôte appelé (`X-Forwarded-Host`). Un WebSocket n'est pas couvert par la same-origin policy : sans ce contrôle, n'importe quel site ouvert dans le navigateur du propriétaire pourrait s'y connecter. |
+| Session du propriétaire | `server.ts` | Cookie `mr_session` valide et rôle `owner`. Les jetons d'API sont refusés (`401`), les autres rôles aussi (`403`). |
+| Console activée | `settings.ts` | Ligne `settings` de clé `server-console`, à part du document « platform » : `settings.update` ne peut pas la modifier. Absente = désactivée (`403`). |
+| Activation | `api/settings.ts` | `settings.setServerConsole` : propriétaire, depuis une session du navigateur, **mot de passe redemandé** (5 échecs → blocage 1 minute, comme la connexion). Désactiver ne demande rien. |
+| Deux sessions au plus | `server.ts` | Tous onglets confondus ; la troisième est fermée avec le code `4002`. |
+| Inactivité | `server.ts` | Fermeture après 30 minutes sans saisie (`CONSOLE_LIMITS`, `src/lib/server-console.ts`). |
+| Revalidation | `server.ts` | Toutes les 10 s : interrupteur toujours activé, cookie toujours valide, toujours propriétaire. Se déconnecter ou désactiver la console ferme les terminaux ouverts. Trois échecs de vérification de suite (base injoignable) les ferment aussi. |
+| Fin de session | `shell.ts`, `pty-bridge.py` | Onglet fermé, page quittée ou connexion perdue (ping toutes les 25 s) : le shell reçoit SIGHUP, puis tout ce qu'il a lancé est tué (SIGHUP, SIGTERM, SIGKILL), **y compris ce qui s'est détaché** (`setsid`, `nohup`, `tmux`) : les processus sont retrouvés par leur session et par la variable `MINI_RAILWAY_CONSOLE=<id>` de leur environnement. |
+| Journal | `server.ts` | Chaque ouverture et chaque fermeture dans l'activité (`console.opened`, `console.closed`) avec l'e-mail, l'adresse IP, la cause et la durée ; activation et désactivation aussi. Les refus sont dans `journalctl -u mini-railway-terminal`, avec l'adresse. Ce qui est tapé n'est **pas** enregistré. |
+
+Ce que le shell est, et n'est pas :
+
+- Il tourne avec le **compte de la plateforme** (celui des services, jamais root : le service et
+  `pty-bridge.py` refusent de démarrer en root). Aucune règle sudo n'a été ajoutée pour lui.
+- L'unité systemd `mini-railway-terminal` pose `NoNewPrivileges=yes` : `sudo` et tout binaire
+  setuid échouent depuis un terminal, **y compris les assistants root de la plateforme**
+  (`mini-railway-proxy`, `mini-railway-claude`…). `KillMode=control-group` : arrêter le service
+  tue tous les terminaux.
+- Son environnement est reconstruit (`HOME`, `PATH`, `TERM=xterm-256color`…) : `DATABASE_URL` et
+  `MINI_RAILWAY_SECRET_KEY` n'y sont pas. **Ce n'est pas une barrière** : le compte peut lire
+  `/etc/mini-railway/mini-railway.env` et le code, donc tous les secrets de la plateforme.
+- **Le compte de la plateforme appartient au groupe `docker`**, et l'accès au démon Docker
+  équivaut à root sur l'hôte (`docker run -v /:/host …`). « Pas root » décrit donc l'identité du
+  shell, pas une limite de ce qu'un attaquant peut atteindre avec. Pour retirer Docker à la
+  console (au prix de `docker ps`, `docker logs`…), ajouter `InaccessiblePaths=/run/docker.sock`
+  à l'unité `mini-railway-terminal`.
+- Redémarrer `mini-railway-web` coupe les terminaux ouverts (la connexion passe par lui) :
+  le shell est alors tué comme pour un onglet fermé.
+
+Restreindre la console à un réseau privé (Tailscale) n'est pas en place. Ce serait : un contrôle
+de l'adresse du client dans `admit()` (plage `100.64.0.0/10`), et surtout un moyen d'atteindre
+l'interface **par** ce réseau (vhost sur le nom ou l'adresse Tailscale, certificat par
+`tailscale cert`), puisqu'une requête faite au domaine public arrive toujours par l'adresse publique.
+
 ## 12. Commandes
 
 ```bash
 npm run db:migrate        # applique les migrations (prisma migrate deploy)
 npm run db:migrate:dev    # crée une migration en développement
 npm run worker            # lance le worker
+npm run terminal          # lance le service de terminal (console du serveur)
 npm run dev               # interface + API (lancer le worker dans un second terminal)
 npm test                  # tests unitaires + API + pipeline (voir README, section Tests)
 npm run test:all          # idem après préparation de la base mini_railway_test
@@ -301,4 +368,9 @@ npm run test:all          # idem après préparation de la base mini_railway_tes
   enregistrés mais pas publiés). `resetDatabase()` vide les tables avant chaque test.
 - `tests/pipeline` : `runDeployment` avec le vrai Docker, images publiques minuscules, projets
   préfixés `pipetest`, nettoyage par labels `projectId`/`serviceId` même en cas d'échec.
+- Console du serveur : `tests/unit/server/terminal-*.test.ts` (contrôles purs, et un vrai
+  pseudo-terminal : taille, environnement, aucun processus orphelin) et
+  `tests/api/server-console.test.ts` (interrupteur, puis le service réel attaqué en WebSocket :
+  refus sans session, autre rôle, autre origine, console désactivée ; limite de sessions,
+  inactivité, déconnexion, journal). Les cas avec shell sont ignorés quand la suite tourne en root.
 - Intégration continue : `.github/workflows/ci.yml` (PostgreSQL 16 en service, Node 24).

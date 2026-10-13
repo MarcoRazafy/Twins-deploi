@@ -10,6 +10,7 @@ import { invalidateEntities, queryKeys } from "./keys";
 export type UpdateProfileInput = Parameters<Api["settings"]["updateProfile"]>[0];
 export type CreateApiTokenInput = Parameters<Api["settings"]["createToken"]>[0];
 export type InviteMemberInput = Parameters<Api["settings"]["inviteMember"]>[0];
+export type SetServerConsoleInput = Parameters<Api["settings"]["setServerConsole"]>[0];
 
 export function useSettings() {
   return useQuery({
@@ -101,6 +102,26 @@ export function useRemoveMember() {
   return useMutation({
     mutationFn: (id: ID) => api.settings.removeMember(id),
     onSuccess: () => invalidateEntities(queryClient, ["settings", "activity"]),
+  });
+}
+
+/** Owner only: pass `enabled: false` for anyone else, the server would refuse. */
+export function useServerConsole(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.settings.serverConsole(),
+    queryFn: () => api.settings.getServerConsole(),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useSetServerConsole() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SetServerConsoleInput) => api.settings.setServerConsole(input),
+    onSuccess: (status) => {
+      queryClient.setQueryData(queryKeys.settings.serverConsole(), status);
+      return invalidateEntities(queryClient, ["settings", "activity"]);
+    },
   });
 }
 

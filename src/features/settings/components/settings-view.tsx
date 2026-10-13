@@ -16,6 +16,7 @@ import { MembersSection } from "./members-section";
 import { NotificationsSection } from "./notifications-section";
 import { ProfileSection } from "./profile-section";
 import { ProjectsSection } from "./projects-section";
+import { ServerConsoleSection } from "./server-console-section";
 import { SettingsNav } from "./settings-nav";
 import { TokensSection } from "./tokens-section";
 
@@ -37,6 +38,8 @@ function SectionContent({ section }: { section: SettingsSection }) {
       return <InfrastructureSection />;
     case "notifications":
       return <NotificationsSection />;
+    case "console":
+      return <ServerConsoleSection />;
     case "danger":
       return <DangerSection />;
   }

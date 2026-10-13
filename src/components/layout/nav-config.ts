@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Rocket,
   Settings,
+  SquareTerminal,
   Variable,
   Workflow,
 } from "lucide-react";
@@ -125,6 +126,18 @@ const deployments: NavItem = {
   isActive: (pathname) => isUnder(pathname, "/deployments"),
 };
 
+/** A shell on the host itself: the owner only, and only against a real server. */
+const serverConsole: NavItem = {
+  id: "server-console",
+  label: "Console",
+  href: routes.serverConsole(),
+  icon: SquareTerminal,
+  keywords: ["terminal", "shell", "ssh", "serveur", "vps", "bash", "claude", "ligne de commande"],
+  isActive: (pathname) => isUnder(pathname, "/console"),
+  minimumRole: "owner",
+  backendOnly: true,
+};
+
 /** Pinned to the bottom of the sidebar, outside the groups. */
 export const SETTINGS_ITEM: NavItem = {
   id: "settings",
@@ -140,6 +153,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   { id: "resources", label: "Ressources", items: [github, docker, databases] },
   { id: "configuration", label: "Configuration", items: [variables, domains] },
   { id: "activity", label: "Activité", items: [deployments] },
+  { id: "server", label: "Serveur", items: [serverConsole] },
 ];
 
 /** Every page, in sidebar order. */
