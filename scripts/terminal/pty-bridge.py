@@ -10,8 +10,9 @@ per browser session, with the rights of the platform account. Never root.
   stdout (fd 1)  bytes written by the shell  -> browser
   fd 3           "COLS ROWS\\n" lines         -> window size (SIGWINCH)
 
-The session ends when the shell exits, when stdin closes (the browser left, or
-the service died) or on SIGTERM. Everything the shell started is then killed:
+The session ends when the shell exits, when stdin closes (the terminal was
+closed, or the service died) or on SIGTERM. The browser leaving is not an end:
+the service keeps the bridge running, detached, until it comes back. Everything the shell started is then killed:
 the processes of its session, and those that left it (setsid, nohup, tmux) but
 still carry the marker MINI_RAILWAY_CONSOLE=ID in their environment.
 The exit status is the one of the shell (128 + signal when it was killed).

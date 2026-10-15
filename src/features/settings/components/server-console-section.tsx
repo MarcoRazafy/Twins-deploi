@@ -192,7 +192,7 @@ function ConsoleCard({ status }: { status: ServerConsoleStatus }) {
             <li>Le shell utilise le compte de la plateforme, sans droits root ni sudo.</li>
             <li>
               {CONSOLE_LIMITS.maxSessions} sessions au plus ; une session se ferme après {IDLE_MINUTES} minutes sans
-              saisie, quand vous quittez la page ou quand vous vous déconnectez.
+              saisie ou quand vous vous déconnectez. Quitter la page ne la ferme pas : vous la reprenez en revenant.
             </li>
             <li>Chaque ouverture et chaque fermeture est inscrite dans l’activité, avec le compte et l’adresse IP.</li>
           </ul>

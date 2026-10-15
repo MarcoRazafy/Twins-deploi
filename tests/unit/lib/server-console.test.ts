@@ -37,6 +37,10 @@ describe("parseConsoleClientMessage", () => {
     });
   });
 
+  it("reads a request to close the terminal", () => {
+    expect(parseConsoleClientMessage('{"type":"close"}')).toEqual({ type: "close" });
+  });
+
   it("ignores everything else", () => {
     expect(parseConsoleClientMessage("not json")).toBeNull();
     expect(parseConsoleClientMessage("null")).toBeNull();

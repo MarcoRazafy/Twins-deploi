@@ -109,6 +109,10 @@ describe("terminal service", () => {
   let url: string;
   const logs: string[] = [];
   const opened: WebSocket[] = [];
+  /** Text frames of each connection, in order. */
+  const received = new WeakMap<WebSocket, string[]>();
+  /** Everything each connection's terminal printed. */
+  const printed = new WeakMap<WebSocket, string>();
 
   async function listen(options: { idleTimeoutMs?: number; recheckIntervalMs?: number } = {}): Promise<void> {
     server = createTerminalServer({
@@ -130,6 +134,14 @@ describe("terminal service", () => {
     for (const [name, value] of Object.entries(headers)) if (value !== undefined) sent[name] = value;
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(target, { headers: sent });
+      // The first message can arrive before the caller listens: kept from the start.
+      const texts: string[] = [];
+      received.set(socket, texts);
+      printed.set(socket, "");
+      socket.on("message", (data: Buffer, isBinary: boolean) => {
+        if (isBinary) printed.set(socket, printed.get(socket)! + data.toString("utf8"));
+        else texts.push(data.toString("utf8"));
+      });
       socket.on("open", () => {
         opened.push(socket);
         resolve({ status: 101, socket });
@@ -142,6 +154,20 @@ describe("terminal service", () => {
         if (!/Unexpected server response/.test(error.message)) reject(error);
       });
     });
+  }
+
+  /** The `session` message every connection starts with. */
+  async function hello(socket: WebSocket): Promise<{ id: string; resumed: boolean }> {
+    const texts = received.get(socket)!;
+    await waitUntil(() => texts.length > 0, "the session message");
+    const message = JSON.parse(texts[0]) as { type: string; id: string; resumed: boolean };
+    expect(message.type).toBe("session");
+    return { id: message.id, resumed: message.resumed };
+  }
+
+  /** Asks the service to end the terminal, like "Fermer la session". */
+  function endTerminal(socket: WebSocket): void {
+    socket.send(JSON.stringify({ type: "close" }));
   }
 
   function closed(socket: WebSocket): Promise<number> {
@@ -247,6 +273,7 @@ describe("terminal service", () => {
       const token = await createSession(owner.id, "vitest");
       const { status, socket } = await connect({ origin: ORIGIN, cookie: cookie(token) }, `${url}?cols=132&rows=43`);
       expect(status).toBe(101);
+      expect((await hello(socket!)).resumed).toBe(false);
       expect(server.sessionCount()).toBe(1);
 
       const result = await run(socket!, 'ok=OK; echo "cwd$ok=$PWD size$ok=$(stty size) db$ok=[$DATABASE_URL]|"', /cwdOK=(\S+) sizeOK=(\d+ \d+) dbOK=\[(.*?)\]\|/);
@@ -268,15 +295,86 @@ describe("terminal service", () => {
         severity: "warning",
       });
 
-      // The tab closes: the shell and what it started go with it, and it is journaled.
+      // "Fermer la session": the shell and what it started go with it, and it is journaled.
       await run(socket!, "sleep 86411 & sleep 0.2; echo started$ok", /startedOK/);
-      socket!.close();
+      const end = closed(socket!);
+      endTerminal(socket!);
+      expect(await end).toBe(CONSOLE_CLOSE.closed);
       await waitUntil(() => server.sessionCount() === 0, "the end of the session");
       await waitUntil(async () => (await db().activityEvent.count({ where: { type: "console.closed" } })) === 1, "the closing in the journal");
       const closedEvent = await db().activityEvent.findFirstOrThrow({ where: { type: "console.closed" } });
-      expect(closedEvent.description).toContain(`${OWNER.email} · 203.0.113.7 · onglet fermé ou connexion coupée`);
+      expect(closedEvent.description).toContain(`${OWNER.email} · 203.0.113.7 · fermée par le propriétaire`);
       const { execFileSync } = await import("node:child_process");
       expect(() => execFileSync("pgrep", ["-f", "sleep 86411"])).toThrow();
+    });
+
+    it("keeps the terminal when the page is left, and gives it back with its latest output", async () => {
+      await listen();
+      await enableConsole();
+      const token = await createSession(owner.id, "vitest");
+      const headers = { origin: ORIGIN, cookie: cookie(token) };
+      const first = await connect(headers);
+      const { id } = await hello(first.socket!);
+      await run(first.socket!, "kept=KEPT; cd /tmp; echo before$kept", /beforeKEPT/);
+
+      // The tab leaves: the shell stays, detached.
+      first.socket!.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(server.sessionCount()).toBe(1);
+      expect(await db().activityEvent.count({ where: { type: "console.closed" } })).toBe(0);
+
+      // Back on the page: the same shell, its state and its latest output.
+      const back = await connect(headers, `${url}?session=${id}`);
+      expect(await hello(back.socket!)).toEqual({ id, resumed: true });
+      await waitUntil(() => printed.get(back.socket!)!.includes("beforeKEPT"), "the replayed output");
+      await run(back.socket!, 'echo "where$kept=$PWD"', /whereKEPT=\/tmp/);
+      expect(server.sessionCount()).toBe(1);
+
+      // Without an id (a reload), the latest detached terminal is the one resumed.
+      back.socket!.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const reload = await connect(headers);
+      expect(await hello(reload.socket!)).toEqual({ id, resumed: true });
+
+      // new=1 opens another one.
+      const fresh = await connect(headers, `${url}?new=1`);
+      expect((await hello(fresh.socket!)).resumed).toBe(false);
+      expect(server.sessionCount()).toBe(2);
+    });
+
+    it("hands a terminal over to the tab that resumes it", async () => {
+      await listen();
+      await enableConsole();
+      const token = await createSession(owner.id, "vitest");
+      const headers = { origin: ORIGIN, cookie: cookie(token) };
+      const first = await connect(headers);
+      const { id } = await hello(first.socket!);
+      const firstEnd = closed(first.socket!);
+
+      const second = await connect(headers, `${url}?session=${id}`);
+      expect(await hello(second.socket!)).toEqual({ id, resumed: true });
+      expect(await firstEnd).toBe(CONSOLE_CLOSE.takenOver);
+      await run(second.socket!, "echo still$((40+2))", /still42/);
+      expect(server.sessionCount()).toBe(1);
+    });
+
+    it("never gives a terminal to someone else", async () => {
+      await listen();
+      await enableConsole();
+      const token = await createSession(owner.id, "vitest");
+      const first = await connect({ origin: ORIGIN, cookie: cookie(token) });
+      const { id } = await hello(first.socket!);
+      first.socket!.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Another owner account (promoted for the test) gets a terminal of its own.
+      const other = await createMember(owner, "admin");
+      await db().user.update({ where: { id: other.id }, data: { role: "owner" } });
+      const otherToken = await createSession(other.id, "vitest");
+      const attempt = await connect({ origin: ORIGIN, cookie: cookie(otherToken) }, `${url}?session=${id}`);
+      const answer = await hello(attempt.socket!);
+      expect(answer.resumed).toBe(false);
+      expect(answer.id).not.toBe(id);
     });
 
     it("opens two terminals at most", async () => {
@@ -292,8 +390,13 @@ describe("terminal service", () => {
       expect(await closed(third.socket!)).toBe(CONSOLE_CLOSE.tooManySessions);
       expect(server.sessionCount()).toBe(2);
 
-      // A slot is free again once a terminal is really gone.
+      // A tab that left still holds its slot; it is free again once the terminal is really gone.
       first.socket!.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(server.sessionCount()).toBe(2);
+      const back = await connect(headers);
+      expect((await hello(back.socket!)).resumed).toBe(true);
+      endTerminal(back.socket!);
       await waitUntil(() => server.sessionCount() === 1, "the first session to end");
       expect((await connect(headers)).status).toBe(101);
       expect(server.sessionCount()).toBe(2);
@@ -336,14 +439,13 @@ describe("terminal service", () => {
       await enableConsole();
       const token = await createSession(owner.id, "vitest");
       const { socket } = await connect({ origin: ORIGIN, cookie: cookie(token) });
-      const messages: string[] = [];
-      socket!.on("message", (data: Buffer, isBinary: boolean) => {
-        if (!isBinary) messages.push(data.toString("utf8"));
-      });
+      const messages = received.get(socket!)!;
       const end = closed(socket!);
       socket!.send(Buffer.from("exit 3\n"));
       expect(await end).toBe(CONSOLE_CLOSE.shellExited);
-      expect(messages).toEqual([JSON.stringify({ type: "exit", code: 3 })]);
+      expect(messages).toHaveLength(2);
+      expect(JSON.parse(messages[0])).toMatchObject({ type: "session", resumed: false });
+      expect(messages[1]).toBe(JSON.stringify({ type: "exit", code: 3 }));
     });
 
     it("ends every session when the service stops", async () => {

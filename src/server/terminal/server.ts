@@ -8,8 +8,10 @@
  * - same-origin browser request carrying the session cookie of the owner
  *   (API tokens are not accepted);
  * - the switch of the Settings is on;
- * - a bounded number of terminals, closed when idle, when the browser leaves,
- *   when the owner signs out or when the switch goes off;
+ * - a bounded number of terminals, closed when idle, when the owner closes
+ *   them or signs out, or when the switch goes off;
+ * - a terminal outlives its connection: leaving the page detaches it, and the
+ *   owner (and only the same owner) attaches back to it later;
  * - every opening and closing is written to the activity journal.
  */
 
@@ -23,6 +25,7 @@ import {
   CONSOLE_CLOSE,
   CONSOLE_LIMITS,
   consoleSize,
+  isConsoleSessionId,
   parseConsoleClientMessage,
   type ConsoleCloseReason,
   type ConsoleServerMessage,
@@ -44,6 +47,8 @@ const MAX_MESSAGE_BYTES = 1024 * 1024;
 /** The shell is paused while the browser is this far behind. */
 const OUTPUT_HIGH_WATER_BYTES = 1024 * 1024;
 const OUTPUT_LOW_WATER_BYTES = 256 * 1024;
+/** Latest output kept per terminal, replayed to the browser that attaches back to it. */
+const REPLAY_BYTES = 256 * 1024;
 /** Sessions are closed when they could not be re-validated this many times in a row. */
 const MAX_FAILED_RECHECKS = 3;
 const SHUTDOWN_GRACE_MS = 10_000;
@@ -67,11 +72,11 @@ export interface TerminalServer {
   close(): Promise<void>;
 }
 
-type EndReason = Exclude<ConsoleCloseReason, "tooManySessions">;
+type EndReason = Exclude<ConsoleCloseReason, "tooManySessions" | "takenOver" | "disconnected">;
 
 /** Wording of the activity journal. */
 const END_LABELS: Record<EndReason, string> = {
-  disconnected: "onglet fermé ou connexion coupée",
+  closed: "fermée par le propriétaire",
   idle: "inactivité",
   disabled: "console désactivée",
   signedOut: "session de connexion terminée",
@@ -83,11 +88,16 @@ interface Session {
   id: string;
   user: UserProfile;
   address: string;
-  /** Session cookie the terminal was opened with, re-validated all along. */
+  /** Session cookie of the latest connection, re-validated all along. */
   token: string;
-  socket: WebSocket;
+  /** Null while detached: nobody watches, the shell keeps running. */
+  socket: WebSocket | null;
   shell: Shell;
+  /** Latest output, oldest first, at most about REPLAY_BYTES. */
+  replay: Buffer[];
+  replayBytes: number;
   openedAt: number;
+  /** Last keystroke or attachment: what the idle timeout counts from. */
   lastInputAt: number;
   /** A pong came back since the last ping. */
   alive: boolean;
@@ -182,24 +192,107 @@ export function createTerminalServer(options: TerminalServerOptions): TerminalSe
   function end(session: Session, reason: EndReason): void {
     if (session.ending) return;
     session.ending = reason;
-    if (reason !== "disconnected" && session.socket.readyState === session.socket.OPEN) {
-      session.socket.close(CONSOLE_CLOSE[reason]);
-    }
+    const socket = session.socket;
+    if (socket && socket.readyState === socket.OPEN) socket.close(CONSOLE_CLOSE[reason]);
     session.shell.close();
+  }
+
+  function remember(session: Session, chunk: Buffer): void {
+    session.replay.push(chunk);
+    session.replayBytes += chunk.length;
+    while (session.replayBytes > REPLAY_BYTES && session.replay.length > 1) {
+      session.replayBytes -= session.replay.shift()!.length;
+    }
+  }
+
+  /** The connection is gone: the terminal stays, detached, until someone attaches back or it idles out. */
+  function detach(session: Session, socket: WebSocket): void {
+    if (session.socket !== socket) return;
+    session.socket = null;
+    // Nobody to keep up with any more: the output goes to the replay buffer.
+    session.shell.resume();
+    if (!session.ending) log(`session ${session.id} detached`);
+  }
+
+  function attach(session: Session, socket: WebSocket, resumed: boolean): void {
+    session.socket = socket;
+    session.alive = true;
+    const hello: ConsoleServerMessage = { type: "session", id: session.id, resumed };
+    socket.send(JSON.stringify(hello));
+    if (resumed) {
+      for (const chunk of session.replay) socket.send(chunk, { binary: true });
+    }
+
+    socket.on("message", (data, isBinary) => {
+      if (session.ending || session.socket !== socket) return;
+      if (isBinary) {
+        session.lastInputAt = Date.now();
+        session.shell.write(toBuffer(data));
+        return;
+      }
+      const message = parseConsoleClientMessage(toBuffer(data).toString("utf8"));
+      if (message?.type === "resize") session.shell.resize(message.cols, message.rows);
+      else if (message?.type === "close") end(session, "closed");
+    });
+    socket.on("pong", () => {
+      if (session.socket === socket) session.alive = true;
+    });
+    socket.on("close", () => detach(session, socket));
+    socket.on("error", () => detach(session, socket));
+  }
+
+  /**
+   * The terminal a connection of `user` attaches back to: the one it names, or
+   * else the most recent detached one. Never a terminal of someone else.
+   */
+  function resumable(user: UserProfile, requested: string | null): Session | null {
+    const named = isConsoleSessionId(requested) ? sessions.get(requested) : undefined;
+    if (named && named.user.id === user.id && !named.ending) return named;
+    let latest: Session | null = null;
+    for (const session of sessions.values()) {
+      if (session.socket !== null || session.ending || session.user.id !== user.id) continue;
+      if (latest === null || session.lastInputAt > latest.lastInputAt) latest = session;
+    }
+    return latest;
   }
 
   function start(socket: WebSocket, admission: Extract<Admission, { ok: true }>, request: IncomingMessage): void {
     const query = new URL(request.url ?? "/", "http://terminal.invalid").searchParams;
     const size = consoleSize(query.get("cols"), query.get("rows"));
-    const id = randomBytes(8).toString("hex");
     const now = Date.now();
 
+    const previous = query.get("new") === "1" ? null : resumable(admission.user, query.get("session"));
+    if (previous) {
+      // Resumed from another tab: that tab lets go of it.
+      const other = previous.socket;
+      if (other) {
+        previous.socket = null;
+        if (other.readyState === other.OPEN) other.close(CONSOLE_CLOSE.takenOver);
+      }
+      previous.token = admission.token;
+      previous.address = admission.address;
+      previous.lastInputAt = now;
+      previous.shell.resize(size.cols, size.rows);
+      attach(previous, socket, true);
+      log(`session ${previous.id} resumed by ${previous.user.email} from ${previous.address}`);
+      return;
+    }
+
+    if (sessions.size >= maxSessions) {
+      log(`refused (too many sessions) for ${admission.user.email} from ${admission.address}`);
+      socket.close(CONSOLE_CLOSE.tooManySessions);
+      return;
+    }
+
+    const id = randomBytes(8).toString("hex");
     const session: Session = {
       id,
       user: admission.user,
       address: admission.address,
       token: admission.token,
-      socket,
+      socket: null,
+      replay: [],
+      replayBytes: 0,
       openedAt: now,
       lastInputAt: now,
       alive: true,
@@ -211,21 +304,24 @@ export function createTerminalServer(options: TerminalServerOptions): TerminalSe
         marker: id,
         onLog: (line) => log(`session ${id}: ${line}`),
         onData: (chunk) => {
-          if (socket.readyState !== socket.OPEN) return;
-          socket.send(chunk, { binary: true }, () => {
-            if (socket.bufferedAmount < OUTPUT_LOW_WATER_BYTES) session.shell.resume();
+          remember(session, chunk);
+          const target = session.socket;
+          if (!target || target.readyState !== target.OPEN) return;
+          target.send(chunk, { binary: true }, () => {
+            if (target.bufferedAmount < OUTPUT_LOW_WATER_BYTES) session.shell.resume();
           });
-          if (socket.bufferedAmount > OUTPUT_HIGH_WATER_BYTES) session.shell.pause();
+          if (target.bufferedAmount > OUTPUT_HIGH_WATER_BYTES) session.shell.pause();
         },
         onExit: (code) => {
           // The shell and everything it started are gone: only now is the session over.
           const reason = session.ending ?? "shellExited";
           session.ending = reason;
           sessions.delete(id);
-          if (socket.readyState === socket.OPEN) {
+          const target = session.socket;
+          if (target && target.readyState === target.OPEN) {
             const message: ConsoleServerMessage = { type: "exit", code };
-            socket.send(JSON.stringify(message));
-            socket.close(CONSOLE_CLOSE.shellExited);
+            target.send(JSON.stringify(message));
+            target.close(CONSOLE_CLOSE.shellExited);
           }
           const duration = formatSessionDuration(Date.now() - session.openedAt);
           log(`session ${id} closed (${reason}) for ${session.user.email} from ${session.address} after ${duration}`);
@@ -234,24 +330,9 @@ export function createTerminalServer(options: TerminalServerOptions): TerminalSe
       }),
     };
     sessions.set(id, session);
+    attach(session, socket, false);
     log(`session ${id} opened by ${session.user.email} from ${session.address}`);
     void journal(session, "console.opened");
-
-    socket.on("message", (data, isBinary) => {
-      if (session.ending) return;
-      if (isBinary) {
-        session.lastInputAt = Date.now();
-        session.shell.write(toBuffer(data));
-        return;
-      }
-      const message = parseConsoleClientMessage(toBuffer(data).toString("utf8"));
-      if (message?.type === "resize") session.shell.resize(message.cols, message.rows);
-    });
-    socket.on("pong", () => {
-      session.alive = true;
-    });
-    socket.on("close", () => end(session, "disconnected"));
-    socket.on("error", () => end(session, "disconnected"));
   }
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
@@ -283,12 +364,8 @@ export function createTerminalServer(options: TerminalServerOptions): TerminalSe
         return;
       }
       wss.handleUpgrade(request, socket, head, (client) => {
-        // Checked here, synchronously with the registration: two handshakes cannot both take the last slot.
-        if (sessions.size >= maxSessions) {
-          log(`refused (too many sessions) for ${admission.user.email} from ${admission.address}`);
-          client.close(CONSOLE_CLOSE.tooManySessions);
-          return;
-        }
+        // The slot is checked in start(), synchronously with the registration:
+        // two handshakes cannot both take the last one.
         start(client, admission, request);
       });
     })();
@@ -325,14 +402,16 @@ export function createTerminalServer(options: TerminalServerOptions): TerminalSe
 
   const ping = setInterval(() => {
     for (const session of sessions.values()) {
-      if (session.ending) continue;
+      const socket = session.socket;
+      if (session.ending || socket === null) continue;
       if (!session.alive) {
-        session.socket.terminate();
-        end(session, "disconnected");
+        // A dead connection: the terminal is detached, not ended.
+        socket.terminate();
+        detach(session, socket);
         continue;
       }
       session.alive = false;
-      session.socket.ping();
+      socket.ping();
     }
   }, pingIntervalMs);
 

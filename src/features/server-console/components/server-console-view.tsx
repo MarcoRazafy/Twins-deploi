@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { Lock, Power, RotateCw, Settings, SquareTerminal } from "lucide-react";
+import { Lock, Plus, Power, RotateCw, Settings, SquareTerminal } from "lucide-react";
 
 import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
@@ -15,24 +15,39 @@ import { routes } from "@/lib/routes";
 import { CONSOLE_CLOSE_MESSAGES } from "@/lib/server-console";
 import type { StatusTone } from "@/lib/status";
 
-import { TerminalPane, type TerminalEvent } from "./terminal-pane";
+import { TerminalPane, type TerminalEvent, type TerminalPaneHandle } from "./terminal-pane";
 
 type Phase =
   | { kind: "connecting" }
-  | { kind: "open" }
-  | { kind: "closed"; message: string }
+  | { kind: "open"; resumed: boolean }
+  /** `resumable`: only the connection ended, the shell may still be running on the server. */
+  | { kind: "closed"; message: string; resumable: boolean }
   /** The owner closed the session: nothing is mounted, nothing runs on the server. */
   | { kind: "idle" };
 
 const REFUSED_MESSAGE =
   "Le serveur a refusé la connexion : console désactivée, session expirée, deux sessions déjà ouvertes ou service de terminal arrêté.";
 
-const PHASE_META: Record<Phase["kind"], { label: string; tone: StatusTone; pulse: boolean }> = {
-  connecting: { label: "Connexion…", tone: "info", pulse: true },
-  open: { label: "Session ouverte", tone: "success", pulse: false },
-  closed: { label: "Session terminée", tone: "neutral", pulse: false },
-  idle: { label: "Session terminée", tone: "neutral", pulse: false },
-};
+function phaseMeta(phase: Phase): { label: string; tone: StatusTone; pulse: boolean } {
+  switch (phase.kind) {
+    case "connecting":
+      return { label: "Connexion…", tone: "info", pulse: true };
+    case "open":
+      return { label: phase.resumed ? "Session reprise" : "Session ouverte", tone: "success", pulse: false };
+    case "closed":
+      return phase.resumable
+        ? { label: "Déconnectée", tone: "warning", pulse: false }
+        : { label: "Session terminée", tone: "neutral", pulse: false };
+    case "idle":
+      return { label: "Session terminée", tone: "neutral", pulse: false };
+  }
+}
+
+/**
+ * Terminal this tab was last attached to. Module state: it outlives the page
+ * when the owner navigates elsewhere in the application and comes back.
+ */
+let lastSessionId: string | null = null;
 
 function closedMessage(event: Extract<TerminalEvent, { type: "closed" }>): string {
   if (!event.wasOpen && event.reason === "disconnected") return REFUSED_MESSAGE;
@@ -43,18 +58,33 @@ function closedMessage(event: Extract<TerminalEvent, { type: "closed" }>): strin
 }
 
 function Terminal() {
-  /** A new attempt remounts the pane: a new connection, a new shell. */
-  const [attempt, setAttempt] = useState(1);
+  /** A new attempt remounts the pane: a new connection, to the same terminal unless `fresh`. */
+  const [attempt, setAttempt] = useState({ count: 1, fresh: false });
   const [phase, setPhase] = useState<Phase>({ kind: "connecting" });
-  const meta = PHASE_META[phase.kind];
+  const pane = useRef<TerminalPaneHandle>(null);
+  const meta = phaseMeta(phase);
 
   function handleEvent(event: TerminalEvent) {
-    setPhase(event.type === "open" ? { kind: "open" } : { kind: "closed", message: closedMessage(event) });
+    if (event.type === "open") {
+      lastSessionId = event.sessionId;
+      setPhase({ kind: "open", resumed: event.resumed });
+      return;
+    }
+    // Only a lost connection leaves the shell running: anything else ended it, or gave it to another tab.
+    const resumable = event.wasOpen && (event.reason === "disconnected" || event.reason === "takenOver");
+    if (!resumable) lastSessionId = null;
+    setPhase({ kind: "closed", message: closedMessage(event), resumable });
   }
 
-  function reopen() {
+  function reopen(fresh: boolean) {
     setPhase({ kind: "connecting" });
-    setAttempt((current) => current + 1);
+    setAttempt((current) => ({ count: current.count + 1, fresh }));
+  }
+
+  function close() {
+    pane.current?.end();
+    lastSessionId = null;
+    setPhase({ kind: "idle" });
   }
 
   return (
@@ -66,16 +96,28 @@ function Terminal() {
           {meta.label}
         </p>
         <p className="hidden min-w-0 flex-1 truncate text-xs text-muted-foreground md:block">
-          Shell du compte de la plateforme, sans droits root. La session se termine si vous quittez cette page.
+          Shell du compte de la plateforme, sans droits root. La session continue si vous quittez cette page, et se
+          ferme après 30 minutes sans saisie.
         </p>
         <div className="ml-auto flex items-center gap-2">
           {phase.kind === "open" || phase.kind === "connecting" ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => setPhase({ kind: "idle" })}>
+            <Button type="button" variant="outline" size="sm" onClick={close}>
               <Power data-icon="inline-start" />
               Fermer la session
             </Button>
+          ) : phase.kind === "closed" && phase.resumable ? (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={() => reopen(true)}>
+                <Plus data-icon="inline-start" />
+                Nouvelle session
+              </Button>
+              <Button type="button" size="sm" onClick={() => reopen(false)}>
+                <RotateCw data-icon="inline-start" />
+                Reprendre la session
+              </Button>
+            </>
           ) : (
-            <Button type="button" size="sm" onClick={reopen}>
+            <Button type="button" size="sm" onClick={() => reopen(true)}>
               <RotateCw data-icon="inline-start" />
               Nouvelle session
             </Button>
@@ -97,14 +139,20 @@ function Terminal() {
             title="Session fermée"
             description="Le shell et tout ce qu’il avait lancé sont arrêtés sur le serveur."
             action={
-              <Button type="button" onClick={reopen}>
+              <Button type="button" onClick={() => reopen(true)}>
                 <RotateCw data-icon="inline-start" />
                 Nouvelle session
               </Button>
             }
           />
         ) : (
-          <TerminalPane key={attempt} onEvent={handleEvent} />
+          <TerminalPane
+            key={attempt.count}
+            ref={pane}
+            sessionId={lastSessionId}
+            fresh={attempt.fresh}
+            onEvent={handleEvent}
+          />
         )}
       </div>
     </section>

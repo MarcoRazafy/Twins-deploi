@@ -2,7 +2,7 @@
 
 import "@xterm/xterm/css/xterm.css";
 
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 
 import {
   CONSOLE_WS_PATH,
@@ -13,7 +13,8 @@ import {
 } from "@/lib/server-console";
 
 export type TerminalEvent =
-  | { type: "open" }
+  /** Attached to terminal `sessionId`: a new one, or one that was already running (`resumed`). */
+  | { type: "open"; sessionId: string; resumed: boolean }
   | {
       type: "closed";
       reason: ConsoleCloseReason;
@@ -23,8 +24,18 @@ export type TerminalEvent =
       exitCode: number | null;
     };
 
+export interface TerminalPaneHandle {
+  /** Ends the terminal on the server (the shell and everything it started). */
+  end(): void;
+}
+
 interface TerminalPaneProps {
+  /** Terminal to attach back to; null lets the server pick the latest detached one. */
+  sessionId: string | null;
+  /** Always open a new terminal, even if a detached one is waiting. */
+  fresh: boolean;
   onEvent: (event: TerminalEvent) => void;
+  ref?: Ref<TerminalPaneHandle>;
 }
 
 const FONT_SIZE_PX = 13;
@@ -36,25 +47,39 @@ function token(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function websocketUrl(cols: number, rows: number): string {
+function websocketUrl(cols: number, rows: number, sessionId: string | null, fresh: boolean): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}${CONSOLE_WS_PATH}?cols=${cols}&rows=${rows}`;
+  const query = new URLSearchParams({ cols: String(cols), rows: String(rows) });
+  if (fresh) query.set("new", "1");
+  else if (sessionId !== null) query.set("session", sessionId);
+  return `${scheme}//${window.location.host}${CONSOLE_WS_PATH}?${query}`;
 }
 
 /**
- * One terminal session: an xterm.js screen wired to the terminal service.
- * Mounting opens the session, unmounting closes it (the shell ends on the
- * server); a new session is a new mount (change the `key`).
+ * One connection to a terminal: an xterm.js screen wired to the terminal
+ * service. Unmounting only detaches: the shell keeps running on the server,
+ * and the next mount attaches back to it (its latest output is replayed).
+ * `end()` closes it for good. Props are read once, at mount: change the
+ * `key` to connect again.
  */
-export function TerminalPane({ onEvent }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, fresh, onEvent, ref }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const emit = useEffectEvent(onEvent);
+  const endRef = useRef<() => void>(() => {});
+  const initial = useRef({ sessionId, fresh });
+
+  useImperativeHandle(ref, () => ({ end: () => endRef.current() }), []);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     let disposed = false;
+    let ending = false;
     let cleanup = (): void => {};
+    // Asked before the connection is up: sent as soon as it is.
+    endRef.current = () => {
+      ending = true;
+    };
 
     // While the terminal has the focus, every key is for the shell: the shortcuts
     // of the application (Ctrl+K, Ctrl+B…) must not fire on top of it.
@@ -89,7 +114,9 @@ export function TerminalPane({ onEvent }: TerminalPaneProps) {
       terminal.open(container);
       fit.fit();
 
-      const socket = new WebSocket(websocketUrl(terminal.cols, terminal.rows));
+      const socket = new WebSocket(
+        websocketUrl(terminal.cols, terminal.rows, initial.current.sessionId, initial.current.fresh),
+      );
       socket.binaryType = "arraybuffer";
       const encoder = new TextEncoder();
       let wasOpen = false;
@@ -105,12 +132,17 @@ export function TerminalPane({ onEvent }: TerminalPaneProps) {
         if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
       };
 
+      endRef.current = () => sendControl({ type: "close" });
+
       socket.addEventListener("open", () => {
         wasOpen = true;
+        if (ending) {
+          sendControl({ type: "close" });
+          return;
+        }
         // The size may have changed while the connection was being established.
         sendControl({ type: "resize", cols: terminal.cols, rows: terminal.rows });
         terminal.focus();
-        emit({ type: "open" });
       });
       socket.addEventListener("message", (event: MessageEvent<ArrayBuffer | string>) => {
         if (typeof event.data !== "string") {
@@ -120,6 +152,9 @@ export function TerminalPane({ onEvent }: TerminalPaneProps) {
         try {
           const message = JSON.parse(event.data) as ConsoleServerMessage;
           if (message.type === "exit") exitCode = message.code;
+          else if (message.type === "session") {
+            emit({ type: "open", sessionId: message.id, resumed: message.resumed });
+          }
         } catch {
           // Not a control message we know: ignored.
         }
@@ -149,7 +184,7 @@ export function TerminalPane({ onEvent }: TerminalPaneProps) {
         onData.dispose();
         onBinary.dispose();
         onResize.dispose();
-        // Leaving the page ends the session: the server kills the shell.
+        // Leaving the page detaches: the shell keeps running on the server.
         socket.close();
         terminal.dispose();
       };

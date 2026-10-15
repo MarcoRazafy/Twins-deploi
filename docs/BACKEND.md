@@ -321,10 +321,11 @@ main, **il ne vérifie rien**. Tous les contrôles sont dans le service (`src/se
 | Session du propriétaire | `server.ts` | Cookie `mr_session` valide et rôle `owner`. Les jetons d'API sont refusés (`401`), les autres rôles aussi (`403`). |
 | Console activée | `settings.ts` | Ligne `settings` de clé `server-console`, à part du document « platform » : `settings.update` ne peut pas la modifier. Absente = désactivée (`403`). |
 | Activation | `api/settings.ts` | `settings.setServerConsole` : propriétaire, depuis une session du navigateur, **mot de passe redemandé** (5 échecs → blocage 1 minute, comme la connexion). Désactiver ne demande rien. |
-| Deux sessions au plus | `server.ts` | Tous onglets confondus ; la troisième est fermée avec le code `4002`. |
-| Inactivité | `server.ts` | Fermeture après 30 minutes sans saisie (`CONSOLE_LIMITS`, `src/lib/server-console.ts`). |
+| Deux sessions au plus | `server.ts` | Tous onglets confondus, sessions détachées comprises ; la troisième est fermée avec le code `4002`. |
+| Reprise | `server.ts` | Une session survit à sa connexion : quitter la page la **détache**, le shell continue et ses 256 derniers Ko de sortie sont gardés. La connexion suivante du **même** compte s'y rattache (`?session=<id>`, ou à défaut la plus récente session détachée) et reçoit cette sortie ; `?new=1` en ouvre une autre. Reprise depuis un autre onglet : le premier est fermé avec `4007`. |
+| Inactivité | `server.ts` | Fermeture après 30 minutes sans saisie ni reprise, page ouverte ou non (`CONSOLE_LIMITS`, `src/lib/server-console.ts`). |
 | Revalidation | `server.ts` | Toutes les 10 s : interrupteur toujours activé, cookie toujours valide, toujours propriétaire. Se déconnecter ou désactiver la console ferme les terminaux ouverts. Trois échecs de vérification de suite (base injoignable) les ferment aussi. |
-| Fin de session | `shell.ts`, `pty-bridge.py` | Onglet fermé, page quittée ou connexion perdue (ping toutes les 25 s) : le shell reçoit SIGHUP, puis tout ce qu'il a lancé est tué (SIGHUP, SIGTERM, SIGKILL), **y compris ce qui s'est détaché** (`setsid`, `nohup`, `tmux`) : les processus sont retrouvés par leur session et par la variable `MINI_RAILWAY_CONSOLE=<id>` de leur environnement. |
+| Fin de session | `shell.ts`, `pty-bridge.py` | Bouton « Fermer la session » (message `{"type":"close"}`, code `4006`), inactivité, déconnexion ou console désactivée : le shell reçoit SIGHUP, puis tout ce qu'il a lancé est tué (SIGHUP, SIGTERM, SIGKILL), **y compris ce qui s'est détaché** (`setsid`, `nohup`, `tmux`) : les processus sont retrouvés par leur session et par la variable `MINI_RAILWAY_CONSOLE=<id>` de leur environnement. |
 | Journal | `server.ts` | Chaque ouverture et chaque fermeture dans l'activité (`console.opened`, `console.closed`) avec l'e-mail, l'adresse IP, la cause et la durée ; activation et désactivation aussi. Les refus sont dans `journalctl -u mini-railway-terminal`, avec l'adresse. Ce qui est tapé n'est **pas** enregistré. |
 
 Ce que le shell est, et n'est pas :
@@ -343,8 +344,9 @@ Ce que le shell est, et n'est pas :
   shell, pas une limite de ce qu'un attaquant peut atteindre avec. Pour retirer Docker à la
   console (au prix de `docker ps`, `docker logs`…), ajouter `InaccessiblePaths=/run/docker.sock`
   à l'unité `mini-railway-terminal`.
-- Redémarrer `mini-railway-web` coupe les terminaux ouverts (la connexion passe par lui) :
-  le shell est alors tué comme pour un onglet fermé.
+- Redémarrer `mini-railway-web` coupe les connexions (elles passent par lui) mais pas les
+  shells : ils restent détachés et la page les reprend. Redémarrer `mini-railway-terminal`,
+  lui, les arrête tous.
 
 Restreindre la console à un réseau privé (Tailscale) n'est pas en place. Ce serait : un contrôle
 de l'adresse du client dans `admit()` (plage `100.64.0.0/10`), et surtout un moyen d'atteindre

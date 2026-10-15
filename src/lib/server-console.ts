@@ -6,7 +6,13 @@
  * - binary frames carry the bytes of the terminal, both ways;
  * - text frames carry a JSON control message (`ConsoleClientMessage` from the
  *   browser, `ConsoleServerMessage` from the server);
- * - the close code says why the session ended (`CONSOLE_CLOSE`).
+ * - the close code says why the connection ended (`CONSOLE_CLOSE`).
+ *
+ * A terminal outlives its connection: when the browser leaves the page, the
+ * shell keeps running on the server until the owner comes back (the query
+ * string `session=<id>`, or the most recent detached terminal of the owner),
+ * closes it, or leaves it idle for `CONSOLE_LIMITS.idleTimeoutMs`.
+ * `new=1` asks for a new terminal instead.
  */
 
 /** Path the browser connects to (rewritten by Next.js to the terminal service). */
@@ -29,13 +35,25 @@ export const CONSOLE_CLOSE = {
   signedOut: 4003,
   shellExited: 4004,
   serverStopping: 4005,
+  /** The owner closed the terminal ("Fermer la session"). */
+  closed: 4006,
+  /** The same terminal was resumed from another tab: this connection lets go of it. */
+  takenOver: 4007,
 } as const;
 
 export type ConsoleCloseReason = keyof typeof CONSOLE_CLOSE | "disconnected";
 
-export type ConsoleClientMessage = { type: "resize"; cols: number; rows: number };
+export type ConsoleClientMessage = { type: "resize"; cols: number; rows: number } | { type: "close" };
 
-export type ConsoleServerMessage = { type: "exit"; code: number | null };
+export type ConsoleServerMessage =
+  /** First message of every connection: the terminal it is attached to. */
+  | { type: "session"; id: string; resumed: boolean }
+  | { type: "exit"; code: number | null };
+
+/** Id of a terminal, as the service generates it (and accepts it back in `session=`). */
+export function isConsoleSessionId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{16}$/.test(value);
+}
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
   const number = typeof value === "string" && /^\d{1,6}$/.test(value) ? Number(value) : value;
@@ -63,6 +81,7 @@ export function parseConsoleClientMessage(text: string): ConsoleClientMessage | 
   }
   if (typeof value !== "object" || value === null) return null;
   const message = value as Record<string, unknown>;
+  if (message.type === "close") return { type: "close" };
   if (message.type !== "resize") return null;
   if (!Number.isInteger(message.cols) || !Number.isInteger(message.rows)) return null;
   return { type: "resize", ...consoleSize(message.cols, message.rows) };
@@ -83,5 +102,7 @@ export const CONSOLE_CLOSE_MESSAGES: Record<ConsoleCloseReason, string> = {
   signedOut: "Votre session de connexion n’est plus valide. Reconnectez-vous.",
   shellExited: "Le shell s’est terminé.",
   serverStopping: "Le service de console redémarre. Rouvrez une session dans un instant.",
-  disconnected: "Connexion interrompue ou refusée. La session est terminée sur le serveur.",
+  closed: "Session fermée.",
+  takenOver: "Cette session a été reprise dans un autre onglet.",
+  disconnected: "Connexion interrompue. Le shell continue sur le serveur : reprenez la session pour le retrouver.",
 };
