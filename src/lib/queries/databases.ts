@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api, type CreateDatabaseInput, type UpdateDatabaseInput } from "@/lib/api";
-import type { CommandRun, ID } from "@/lib/types";
+import type { CommandRun, DatabaseRow, ID } from "@/lib/types";
 
 import {
   invalidateEntities,
@@ -116,6 +116,26 @@ export function useRotateDatabasePassword() {
   return useMutation({
     mutationFn: (id: ID) => api.databases.rotatePassword(id),
     onSuccess: () => invalidateEntities(queryClient, ["databases", "variables", "activity"]),
+  });
+}
+
+export type RowWrite =
+  | { kind: "insert"; id: ID; table: string; values: DatabaseRow }
+  | { kind: "update"; id: ID; table: string; key: DatabaseRow; values: DatabaseRow }
+  | { kind: "delete"; id: ID; table: string; key: DatabaseRow };
+
+/** Inserts, updates or deletes one row of the "Data" tab; tables and pages are read again. */
+export function useWriteDatabaseRow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (write: RowWrite) => {
+      if (write.kind === "insert") return api.databases.insertRow(write.id, write.table, write.values);
+      if (write.kind === "update") {
+        return api.databases.updateRow(write.id, write.table, write.key, write.values);
+      }
+      return api.databases.deleteRow(write.id, write.table, write.key);
+    },
+    onSuccess: () => invalidateEntities(queryClient, ["databases"]),
   });
 }
 

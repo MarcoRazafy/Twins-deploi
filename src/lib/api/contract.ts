@@ -28,6 +28,7 @@ import type {
   ContainerAction,
   Database,
   DatabaseBackup,
+  DatabaseRow,
   BuiltinVariable,
   DatabaseTable,
   DatabaseTableData,
@@ -458,6 +459,15 @@ export interface Api {
       table: string,
       params?: { limit?: number; offset?: number },
     ): Promise<DatabaseTableData>;
+    /**
+     * Rows of the "Data" tab, written one at a time. `values` maps column names
+     * to values (null = NULL); a column left out takes its default (insert) or
+     * keeps its value (update). `key` holds the whole primary key of the row:
+     * tables without one are edited from the SQL console.
+     */
+    insertRow(id: ID, table: string, values: DatabaseRow): Promise<void>;
+    updateRow(id: ID, table: string, key: DatabaseRow, values: DatabaseRow): Promise<void>;
+    deleteRow(id: ID, table: string, key: DatabaseRow): Promise<void>;
     /** Read-only SQL console (the mock understands simple SELECTs). */
     runQuery(id: ID, sql: string): Promise<QueryResult>;
     /**

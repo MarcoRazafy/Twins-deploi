@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, DatabaseZap, SearchX } from "lucide-react";
+import { ChevronLeft, ChevronRight, DatabaseZap, Pencil, Plus, SearchX, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ErrorState } from "@/components/shared/error-state";
 import { SearchInput } from "@/components/shared/search-input";
@@ -15,13 +17,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getErrorMessage } from "@/lib/api/contract";
 import { formatKilobytes, formatNumber, pluralize } from "@/lib/format";
-import { useDatabaseTableData, useDatabaseTables } from "@/lib/queries";
-import type { DatabaseTable } from "@/lib/types";
+import { useDatabaseTableData, useDatabaseTables, useWriteDatabaseRow } from "@/lib/queries";
+import type { DatabaseRow, DatabaseTable } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { TablesSkeleton } from "./panel-skeletons";
 import { ResultGrid } from "./result-grid";
+import { primaryKeyOf, RowEditorDialog } from "./row-editor-dialog";
 
 const PAGE_SIZE = 25;
 
@@ -94,6 +98,26 @@ function TableData({ databaseId, table }: { databaseId: string; table: DatabaseT
   const [offset, setOffset] = useState(0);
   const query = useDatabaseTableData(databaseId, table.name, { limit: PAGE_SIZE, offset });
   const { data } = query;
+  const remove = useWriteDatabaseRow();
+  /** undefined: closed; null: new row; a row: that row. */
+  const [editing, setEditing] = useState<DatabaseRow | null | undefined>(undefined);
+  const [deleting, setDeleting] = useState<DatabaseRow | null>(null);
+  const editable = table.columns.some((column) => column.primaryKey);
+
+  function confirmDelete() {
+    const key = deleting ? primaryKeyOf(table, deleting) : null;
+    if (!key) return;
+    remove.mutate(
+      { kind: "delete", id: databaseId, table: table.name, key },
+      {
+        onSuccess: () => {
+          toast.success("Ligne supprimée", { description: table.name });
+          setDeleting(null);
+        },
+        onError: (error) => toast.error(getErrorMessage(error)),
+      },
+    );
+  }
 
   const columns = data?.columns ?? table.columns;
   const total = data?.total ?? table.rowCount;
@@ -106,11 +130,22 @@ function TableData({ databaseId, table }: { databaseId: string; table: DatabaseT
         <h3 className="font-mono text-sm font-medium">
           {table.schema}.{table.name}
         </h3>
-        <p className="tabular text-xs text-muted-foreground">
-          {pluralize(total, "ligne")} · {pluralize(columns.length, "colonne")} ·{" "}
-          {formatKilobytes(table.sizeKb)}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="tabular text-xs text-muted-foreground">
+            {pluralize(total, "ligne")} · {pluralize(columns.length, "colonne")} ·{" "}
+            {formatKilobytes(table.sizeKb)}
+          </p>
+          <Button size="sm" variant="outline" onClick={() => setEditing(null)}>
+            <Plus data-icon="inline-start" />
+            Ajouter une ligne
+          </Button>
+        </div>
       </div>
+      {!editable ? (
+        <p className="text-xs text-muted-foreground">
+          Cette table n’a pas de clé primaire : modifiez ou supprimez ses lignes depuis la console SQL.
+        </p>
+      ) : null}
 
       {query.isError && !data ? (
         <ErrorState
@@ -136,6 +171,33 @@ function TableData({ databaseId, table }: { databaseId: string; table: DatabaseT
             rows={data.rows}
             label={`Lignes de la table ${table.name}`}
             emptyMessage="Cette table ne contient aucune ligne."
+            rowActions={
+              editable
+                ? (row) => (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Modifier la ligne"
+                        title="Modifier"
+                        onClick={() => setEditing(row)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Supprimer la ligne"
+                        title="Supprimer"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleting(row)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </>
+                  )
+                : undefined
+            }
           />
         </div>
       )}
@@ -165,6 +227,31 @@ function TableData({ databaseId, table }: { databaseId: string; table: DatabaseT
           </Button>
         </div>
       </div>
+
+      <RowEditorDialog
+        databaseId={databaseId}
+        table={table}
+        row={editing ?? null}
+        open={editing !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setEditing(undefined);
+        }}
+      />
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+        tone="danger"
+        title="Supprimer la ligne"
+        description={
+          <>
+            Cette ligne de <span className="font-mono">{table.name}</span> sera supprimée définitivement.
+          </>
+        }
+        loading={remove.isPending}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

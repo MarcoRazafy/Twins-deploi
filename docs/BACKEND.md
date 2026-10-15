@@ -237,7 +237,11 @@ le Dockerfile du dépôt est obligatoire.
 Un conteneur `postgres:<version>-alpine` par base, avec volume nommé, sur le réseau du projet
 (hôte interne `<slug>.railway.internal:5432`) et publié sur la boucle locale pour la plateforme.
 Tables, données et console SQL passent par `pg` (console en lecture seule :
-`default_transaction_read_only`, délai de 5 s, 500 lignes). Sauvegardes : `pg_dump -Fc` via
+`default_transaction_read_only`, délai de 5 s, 500 lignes). L'onglet « Tables » ajoute, modifie et
+supprime des lignes une à une (`databases.insertRow` / `updateRow` / `deleteRow`) : colonnes vérifiées
+contre le schéma lu sur le serveur, valeurs passées en paramètres, ligne désignée par sa clé primaire
+complète (tables sans clé primaire : console SQL), transaction validée seulement si exactement une ligne
+est touchée. Sauvegardes : `pg_dump -Fc` via
 `docker exec` vers `<data>/backups/databases/<id>/`, restauration par `pg_restore`.
 Console de commandes (onglet « Console » d'une base, `src/server/databases/console.ts`) : elle est
 affichée sur la base mais exécute des **commandes de l'application** (`npm run db:migrate`,

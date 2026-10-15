@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { KeyRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,8 @@ export interface ResultGridProps {
   /** The grid scrolls (both ways) inside this height; the header stays visible. */
   maxHeight?: string;
   className?: string;
+  /** Buttons of a last column kept visible on the right (edit, delete…). */
+  rowActions?: (row: DatabaseRow) => ReactNode;
 }
 
 function Cell({ value }: { value: DatabaseCell | undefined }) {
@@ -53,7 +56,7 @@ function Cell({ value }: { value: DatabaseCell | undefined }) {
 }
 
 /**
- * Read-only data grid: sticky header, monospace cells, NULL dimmed, booleans
+ * Data grid, with optional per-row actions: sticky header, monospace cells, NULL dimmed, booleans
  * as badges. The scroll container is the grid itself, so the page never
  * scrolls sideways.
  */
@@ -64,6 +67,7 @@ export function ResultGrid({
   emptyMessage = "Aucune ligne à afficher.",
   maxHeight = "28rem",
   className,
+  rowActions,
 }: ResultGridProps) {
   return (
     <div
@@ -100,13 +104,18 @@ export function ResultGrid({
                 ) : null}
               </th>
             ))}
+            {rowActions ? (
+              <th scope="col" className="sticky top-0 right-0 z-20 border-b bg-secondary px-2 py-2">
+                <span className="sr-only">Actions</span>
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
               <td
-                colSpan={Math.max(1, columns.length)}
+                colSpan={Math.max(1, columns.length + (rowActions ? 1 : 0))}
                 className="px-3 py-8 text-center font-sans text-sm text-muted-foreground"
               >
                 {emptyMessage}
@@ -123,6 +132,11 @@ export function ResultGrid({
                     <Cell value={row[column.name]} />
                   </td>
                 ))}
+                {rowActions ? (
+                  <td className="sticky right-0 border-b border-border/60 bg-card px-1.5 py-0.5 whitespace-nowrap">
+                    <span className="flex items-center justify-end gap-0.5">{rowActions(row)}</span>
+                  </td>
+                ) : null}
               </tr>
             ))
           )}

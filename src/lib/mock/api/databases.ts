@@ -74,6 +74,7 @@ function consoleTarget(db: MockDb, database: DatabaseRecord, serviceId: string |
 }
 
 const supportedVersions: readonly string[] = POSTGRES_VERSIONS;
+const SIMULATED_ROWS = "Le simulateur génère ses lignes : elles ne peuvent pas être modifiées.";
 
 export const databasesApi: Api["databases"] = {
   list: (filter) =>
@@ -265,6 +266,25 @@ export const databasesApi: Api["databases"] = {
         rows: readRows(database.dataset, spec, offset, limit, Date.parse(db.seededAt)),
         total: spec.rowCount,
       };
+    }),
+
+  // The simulated rows are generated, not stored: they cannot be written.
+  insertRow: (id) =>
+    read((db) => {
+      assertOnline(db, requireDatabase(db, id));
+      throw unavailable(SIMULATED_ROWS);
+    }),
+
+  updateRow: (id) =>
+    read((db) => {
+      assertOnline(db, requireDatabase(db, id));
+      throw unavailable(SIMULATED_ROWS);
+    }),
+
+  deleteRow: (id) =>
+    read((db) => {
+      assertOnline(db, requireDatabase(db, id));
+      throw unavailable(SIMULATED_ROWS);
     }),
 
   runQuery: (id, sql) =>

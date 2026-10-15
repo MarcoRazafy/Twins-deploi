@@ -11,7 +11,7 @@ import { connectToDatabase, readLiveStats, withDatabase } from "../databases/con
 import { checkCommandLine, readConsoleCommand, startConsoleCommand } from "../databases/console";
 import { createDatabase } from "../databases/create";
 import { runReadOnlyQuery, scanStatement } from "../databases/query";
-import { describeTables, readTable } from "../databases/tables";
+import { deleteRow, describeTables, insertRow, readTable, updateRow } from "../databases/tables";
 import { rotateConnectionVariables } from "../databases/variables";
 import { db } from "../db";
 import { conflict, notFound, unavailable, validation } from "../errors";
@@ -272,6 +272,36 @@ export function createDatabasesApi(ctx: Context): Api["databases"] {
       return withDatabase(row, async (client) =>
         readTable(client, await describeTables(client), asString(table), limit, offset),
       );
+    },
+
+    async insertRow(id, table, values) {
+      const row = await load(asString(id));
+      await withDatabase(
+        row,
+        async (client) => insertRow(client, await describeTables(client), asString(table), values),
+        { readOnly: false },
+      );
+      await emit(["databases"], scopeOf(row));
+    },
+
+    async updateRow(id, table, key, values) {
+      const row = await load(asString(id));
+      await withDatabase(
+        row,
+        async (client) => updateRow(client, await describeTables(client), asString(table), key, values),
+        { readOnly: false },
+      );
+      await emit(["databases"], scopeOf(row));
+    },
+
+    async deleteRow(id, table, key) {
+      const row = await load(asString(id));
+      await withDatabase(
+        row,
+        async (client) => deleteRow(client, await describeTables(client), asString(table), key),
+        { readOnly: false },
+      );
+      await emit(["databases"], scopeOf(row));
     },
 
     async runQuery(id, sql) {
